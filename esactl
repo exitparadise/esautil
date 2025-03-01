@@ -248,7 +248,7 @@ def main():
                 sys.exit(f"index template '{args.object}' not found")
 
             t.update_name(args.dest)
-            t.unmanage("prth")
+            t.unmanage("self")
 
             res = api_request('POST',ELASTIC_HOST,f"_index_template/{t.name}",t.template)
         elif args.action == 'createfromgeneric':
