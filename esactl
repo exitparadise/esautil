@@ -7,6 +7,8 @@
 import argparse, requests, json, os, sys, re
 from datetime import datetime
 
+from elasticagent import *
+
 requests.packages.urllib3.disable_warnings() 
 
 parser = argparse.ArgumentParser(description="Elastic Agent Management Utility")
@@ -57,116 +59,6 @@ ILM_DETAILS = { 'policy': {'name': 'ilm', 'type': 't'},
                 'phase_time_millis': {'name': 'in_phase', 'type': 'd'}
               }
 
-class dict_append:
-    def __init__(self, target):
-        self.target = target
-    def __getitem__(self, key):
-        return dict_append(self.target.setdefault(key, {}))
-    def __setitem__(self, key, value):
-        self.target[key] = value
-
-class elasticTemplate():
-    def __init__(self,data):
-        try:
-            self.template = data['index_templates'][0]['index_template']
-            self.name = data['index_templates'][0]['name']
-        except KeyError:
-            self.template = data['index_template']
-            self.name = data['name']
-
-    def __str__(self):
-        return(json.dumps(self.template,indent=1))
-
-    def print_json(self):
-        print(self.name)
-        print(json.dumps(self.template,indent=1))
-
-    def print_details(self):
-       print(f"  - priority: {self.template['priority']}")
-       try:
-         print(f"  - ilm_policy: {self.template['template']['settings']['index']['lifecycle']['name']}")
-       except KeyError:
-         print(f"  - ilm_policy: None")
-
-       try:
-         print(f"  - lifecycle_data_retention: {self.template['template']['lifecycle']['data_retention']}")
-       except KeyError:
-         print(f"  - lifecycle data retention: None")
-
-       print("  - patterns:")
-       for pat in self.template['index_patterns']:
-         print(f"    {pat}")
-       print("  - components:")
-       for comp in self.template['composed_of']:
-         print(f"    {comp}")
-
-    def get_patterns(self):
-        return self.template['index_patterns']
-
-    def update_name(self,name):
-        self.name = name
-        return 1
-
-    def update_ilm_policy(self,p):
-        count = 0
-        if p == None:
-            try:
-                del self.template['template']['settings']['index']['lifecycle']
-                count += 1
-            except KeyError:
-                pass
-        else:
-            dict_append(self.template)['template']['settings']['index']['lifecycle']['name'] = p
-            count += 1
-        return count
-
-    def update_retention(self,r):
-        count = 0
-        if r == 0:
-            dict_append(self.template)['template']['lifecycle']['enabled'] = False
-            dict_append(self.template)['template']['lifecycle']['data_retention'] = None
-            count += 1
-        elif r:
-            dict_append(self.template)['template']['lifecycle']['enabled'] = True
-            dict_append(self.template)['template']['lifecycle']['data_retention'] = f"{r}d"
-            count += 1
-        return count
-  
-    def update_component(self,c):
-        count = 0
-        if c[0] in ('a','add'):
-            if c[1] in self.template['composed_of']:
-                print(f"component template: {c[1]} is already in index template: {self.name}")
-            else: 
-                self.template['composed_of'].append(c[1])
-                count += 1
-        elif c[0] in ('r','rm','remove'):
-            if c[1] in self.template['composed_of']:
-                self.template['composed_of'].remove(c[1])
-                count += 1
-            else: 
-                print(f"component template: {c[1]} is not in index template: {self.name}")
-        else:
-           sys.exit(f"unrecognized subcommand: {c[0]}") 
-        return count
-
-    def update_patterns(self,p):
-        if type(p) is list:
-            self.template['index_patterns'] = p
-            return 1
-        else: 
-            print("not a list, skipping")
-            return 0
-        
-    def update_prio(self,p):
-        self.template['priority'] = p
-        return 1
-   
-    def unmanage(self,m):
-        self.template['_meta']['managed_by'] = m
-        self.template['_meta']['managed'] = False
-        return 1
-  
 def main():
     if args.cmd == 'ilm':
         if args.action == 'list':
@@ -351,7 +243,7 @@ def main():
             template_recreate_from_ds(args.object)
         elif args.action == 'copy':
             try:
-                t = elasticTemplate(api_request('GET',ELASTIC_HOST,f"_index_template/{args.object}"))
+                t = indexTemplate(api_request('GET',ELASTIC_HOST,f"_index_template/{args.object}"))
             except:
                 sys.exit(f"index template '{args.object}' not found")
 
@@ -368,7 +260,7 @@ def main():
             namespace = n[0]
 
             try:
-                t = elasticTemplate(api_request('GET',ELASTIC_HOST,f"_index_template/{g}"))
+                t = indexTemplate(api_request('GET',ELASTIC_HOST,f"_index_template/{g}"))
             except:
                 sys.exit(f"generic index template '{g}' not found")
 
@@ -394,7 +286,7 @@ def main():
         elif args.action == 'json':
             if args.object:
                 try:
-                    t = elasticTemplate(api_request('GET',ELASTIC_HOST,f"_index_template/{args.object}"))
+                    t = indexTemplate(api_request('GET',ELASTIC_HOST,f"_index_template/{args.object}"))
                     t.print_json()
                 except:
                     sys.exit(f"template not found: {args.object}")
@@ -411,14 +303,14 @@ def main():
             else:
                 sys.exit("template actions require <object>, a valid namespace or index template name")
 
-            for t in map(elasticTemplate, resp['index_templates']):
+            for t in map(indexTemplate, resp['index_templates']):
                W = raise_warn(args.object, t.name, 'search', 'N')
                print(f"{t.name} {W}")
                if args.action == 'details':
                    t.print_details()
 
         elif args.action == 'update':
-            t = elasticTemplate(api_request('GET',ELASTIC_HOST,f"_index_template/{args.object}"))
+            t = indexTemplate(api_request('GET',ELASTIC_HOST,f"_index_template/{args.object}"))
             changes = 0
             if args.component:
                 changes += t.update_component(args.component)
