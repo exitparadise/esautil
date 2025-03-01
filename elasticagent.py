@@ -106,7 +106,7 @@ class indexTemplate():
             return 0
         
     def update_prio(self,p):
-        self.template['priority'] = p
+        self.template['priority'] = p[0]
         return 1
    
     def unmanage(self,m):

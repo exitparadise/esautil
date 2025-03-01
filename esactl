@@ -4,10 +4,9 @@
 # tim talpas github.festive812@passfwd.com
 # 
 
+import elasticagent as ea
 import argparse, requests, json, os, sys, re
 from datetime import datetime
-
-from elasticagent import *
 
 requests.packages.urllib3.disable_warnings() 
 
@@ -195,14 +194,14 @@ def main():
                                if ILM_DETAILS[i]['type'] == 'd':
                                    try:
                                        m =  datetime.now() - datetime.fromtimestamp(il['indices'][id][i]/1000)
-                                       dict_append(ILM_DETAILS)[i]['val'] = str(round(m.total_seconds() / 86400,2)) +"d"
+                                       ea.dict_append(ILM_DETAILS)[i]['val'] = str(round(m.total_seconds() / 86400,2)) +"d"
                                    except:
-                                       dict_append(ILM_DETAILS)[i]['val'] = 'N/A'
+                                       ea.dict_append(ILM_DETAILS)[i]['val'] = 'N/A'
                                else:
                                    try:
-                                       dict_append(ILM_DETAILS)[i]['val'] = il['indices'][id][i] 
+                                       ea.dict_append(ILM_DETAILS)[i]['val'] = il['indices'][id][i] 
                                    except:
-                                       dict_append(ILM_DETAILS)[i]['val'] = 'N/A'
+                                       ea.dict_append(ILM_DETAILS)[i]['val'] = 'N/A'
 
                            print(f"    {id}",end='')
                      
@@ -243,7 +242,7 @@ def main():
             template_recreate_from_ds(args.object)
         elif args.action == 'copy':
             try:
-                t = indexTemplate(api_request('GET',ELASTIC_HOST,f"_index_template/{args.object}"))
+                t = ea.indexTemplate(api_request('GET',ELASTIC_HOST,f"_index_template/{args.object}"))
             except:
                 sys.exit(f"index template '{args.object}' not found")
 
@@ -260,7 +259,7 @@ def main():
             namespace = n[0]
 
             try:
-                t = indexTemplate(api_request('GET',ELASTIC_HOST,f"_index_template/{g}"))
+                t = ea.indexTemplate(api_request('GET',ELASTIC_HOST,f"_index_template/{g}"))
             except:
                 sys.exit(f"generic index template '{g}' not found")
 
@@ -286,7 +285,7 @@ def main():
         elif args.action == 'json':
             if args.object:
                 try:
-                    t = indexTemplate(api_request('GET',ELASTIC_HOST,f"_index_template/{args.object}"))
+                    t = ea.indexTemplate(api_request('GET',ELASTIC_HOST,f"_index_template/{args.object}"))
                     t.print_json()
                 except:
                     sys.exit(f"template not found: {args.object}")
@@ -303,14 +302,14 @@ def main():
             else:
                 sys.exit("template actions require <object>, a valid namespace or index template name")
 
-            for t in map(indexTemplate, resp['index_templates']):
+            for t in map(ea.indexTemplate, resp['index_templates']):
                W = raise_warn(args.object, t.name, 'search', 'N')
                print(f"{t.name} {W}")
                if args.action == 'details':
                    t.print_details()
 
         elif args.action == 'update':
-            t = indexTemplate(api_request('GET',ELASTIC_HOST,f"_index_template/{args.object}"))
+            t = ea.indexTemplate(api_request('GET',ELASTIC_HOST,f"_index_template/{args.object}"))
             changes = 0
             if args.component:
                 changes += t.update_component(args.component)
