@@ -12,6 +12,10 @@ requests.packages.urllib3.disable_warnings()
 
 parser = argparse.ArgumentParser(description="Elastic Agent Management Utility")
 subparsers = parser.add_subparsers(dest="cmd")
+
+parser_ns = subparsers.add_parser("ns", help="namespace actions")
+parser_ns.add_argument("action", choices=["list","details"])
+
 parser_template = subparsers.add_parser("template", help="index template actions")
 parser_template.add_argument("action", choices=["list","json","init","details","update","createfromgeneric","copy"])
 parser_template.add_argument("object", help="the namespace or index template")
@@ -86,10 +90,22 @@ def main():
                         print(f"  - datastream: {d}")
                     for c in ilms[ilm]['in_use_by']['composable_templates']:
                         print(f"  - index_template: {c}")
+    elif args.cmd == 'ns':
+        if args.action in ('list','details'):
+            ns = {}
+            pol = api_request('GET',KIBANA_HOST,f"api/fleet/agent_policies")
+            for policy in pol['items']:
+                ea.dict_append(ns)[policy['namespace']] = 1
+            
+            for n in sorted(ns.keys()):
+                print(n)
+            
     elif args.cmd == 'agent':
         if args.action in ('list','details'):
             if args.object in SPACES:
                 pol = api_request('GET',KIBANA_HOST,f"api/fleet/agent_policies?kuery=ingest-agent-policies.namespace:{args.object}")
+            elif args.object == 'all':
+                pol = api_request('GET',KIBANA_HOST,f"api/fleet/agent_policies")
             elif args.action == 'details':
                 pol = api_request('GET',KIBANA_HOST,f"api/fleet/agent_policies?kuery=ingest-agent-policies.name:{args.object}")
             else:
@@ -114,7 +130,7 @@ def main():
 
                 print(f"copy {policy['item']['name']}/{policy['item']['id']} to {args.dest}")
 
-                (new_policy,packages) = agent_policy_copy(policy['item'], args.dest, args.namespace)
+                (new_policy,packages) = agent_policy_rename(policy['item'], args.dest, args.namespace)
                 new_policy_def = api_request('POST',KIBANA_HOST,f"api/fleet/agent_policies",new_policy)
                 print(f" - new policy ID: {new_policy_def['item']['id']}")
                 
@@ -339,6 +355,43 @@ def main():
         parser.print_help()
         sys.exit(1)
     print_warns(WARN)
+
+def agent_policy_rename(POLICY,NAMESPACE,NAME):
+    for d in ('id','version','revision','updated_at','updated_by','agents',
+              'unprivileged_agents','status','is_managed','is_protected','schema_version','inactivity_timeout'):
+        del POLICY[d]
+    
+    POLICY['namespace'] = NAMESPACE
+    POLICY['name'] = NAME
+
+    new_packages = []
+    for p in POLICY['package_policies']:
+        new_name = re.sub("^[^-]+",NAMESPACE,p['name'])
+        new_name = re.sub(" \(.*\)","",new_name)
+        p['name'] = new_name
+        for d in ('id','version','updated_at','updated_by','revision','created_at','created_by','policy_id','policy_ids'):
+            del p[d]
+
+        new_inputs = []
+        for i in p['inputs']:
+            new_streams = []
+            for s in i['streams']:
+                del s['id']
+                new_streams.append(s)
+
+            del i['streams']
+            i['streams'] = new_streams
+
+            new_inputs.append(i)
+
+        del p['inputs']
+        p['inputs'] = new_inputs
+
+        new_packages.append(p)
+
+    del POLICY['package_policies']
+    #POLICY['package_policies'] = new_packages
+    return POLICY,new_packages
 
 def ilm_phase_show(P,PHASE):
     print(f"  - {P}:")

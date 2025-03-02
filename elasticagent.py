@@ -119,27 +119,32 @@ class agentPolicy():
     def __init__(self, name, data={}):
         self.name = name
         self.packages = []
-        try:
-            for p in data['package_policies']:
-                self.packages.append(p)
+        if data is not {}:
+            try:
+                for p in data['package_policies']:
+                    self.packages.append(p)
 
-            del data['package_policies']
-        except KeyError:
-            pass
+                del data['package_policies']
+            except KeyError:
+                pass
 
-        self.policy = data
+            self.policy = data
+
+        return 1
 
     def add_policy(self,policy):
-        print(json.dumps(policy,indent=1))
-        resp = api_request('POST',KIBANA_HOST,f"api/fleet/agent_policies",policy)
-        self.policy = resp['item']
+#        print(json.dumps(policy,indent=1))
+#        resp = api_request('POST',KIBANA_HOST,f"api/fleet/agent_policies",policy)
+#        self.policy = resp['item']
+        self.policy = policy
 
     def add_package(self,package):
-        print(json.dumps(package,indent=1))
-        p = api_request('POST',KIBANA_HOST,f"api/fleet/package_policies",package)
-        self.packages.append(p['item'])
+#        print(json.dumps(package,indent=1))
+#        p = api_request('POST',KIBANA_HOST,f"api/fleet/package_policies",package)
+#        self.packages.append(p['item'])
+        self.packages.append(package)
 
-    def copy_policy(self,newname,newspace='default'):
+    def update_policy(self,newname,newspace='default'):
         self.name = newname
         for d in ('id','version','revision','updated_at','updated_by','agents',
                   'unprivileged_agents','status','is_managed','is_protected','schema_version','inactivity_timeout'):
@@ -149,7 +154,7 @@ class agentPolicy():
 
         return self.policy
 
-    def copy_packages(self,newname,newspace='default'):
+    def update_packages(self,newname,newspace='default'):
         for p in self.packages:
             new_name = re.sub("^[^-]+",newspace,p['name'])
             p['name'] = new_name
