@@ -4,6 +4,24 @@
 # tim talpas github.festive812@passfwd.com
 # 
 
+from datetime import datetime
+import json
+
+WARN={}
+
+class ilmDetails:
+    def __init__(self,data):
+        self.details = data
+    
+    def print_details(self,w):
+        m = datetime.now() - datetime.fromtimestamp(self.details['phase_time_millis']/1000)
+        print(f"    {self.details['index']}", end='')
+        print(f" ilm:{self.details['policy']}", end='')
+        print(f" phase:{self.details['phase']}", end='')
+        print(f" created:{self.details['time_since_index_creation']}", end='')
+        print(f" rolledover:{self.details['age']}", end='')
+        print(f" in_phase:{str(round(m.total_seconds() / 86400,2)) + 'd'} {w}")
+
 class dict_append:
     def __init__(self, target):
         self.target = target

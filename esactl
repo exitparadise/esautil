@@ -52,15 +52,8 @@ API_KEY=os.getenv('ELASTIC_API_KEY')
 ELASTIC_HOST="elastic-api:9200"
 KIBANA_HOST="kibana-api:5601"
 
-WARN={}
 SSL_VERIFY=False
 SPACES = ('prod','devqa','default')
-ILM_DETAILS = { 'policy': {'name': 'ilm', 'type': 't'},
-                'phase': {'name': 'phase', 'type': 't'},
-                'time_since_index_creation': {'name': 'created', 'type': 't'},
-                'age': {'name': 'rolledover', 'type': 't'},
-                'phase_time_millis': {'name': 'in_phase', 'type': 'd'}
-              }
 
 def main():
     if args.cmd == 'ilm':
@@ -196,35 +189,24 @@ def main():
                    print("  - indices:")
 
                    if args.show_lifecycle:
-                       il = api_request('GET',ELASTIC_HOST,f"{ds['name']}/_ilm/explain?human")
+                       il = api_request('GET',ELASTIC_HOST,f"{ds['name']}/_ilm/explain")
 
                        k = list(il['indices'].keys())
                        k.sort()
                        for id in k:
+
+                           a = ea.ilmDetails(il['indices'][id])
+
                            try:
                                W2 = raise_warn(ds['ilm_policy'],il['indices'][id]['policy'],'equals','M')
-                           except:
-                               W2 = raise_warn(ds['ilm_policy'],'None','equals','M')
+                           except KeyError:
+                               try:
+                                   W2 = raise_warn(ds['ilm_policy'],'None','equals','M')
+                               except: 
+                                   W2 = ''
 
-                           for i in ILM_DETAILS.keys():
-                               if ILM_DETAILS[i]['type'] == 'd':
-                                   try:
-                                       m =  datetime.now() - datetime.fromtimestamp(il['indices'][id][i]/1000)
-                                       ea.dict_append(ILM_DETAILS)[i]['val'] = str(round(m.total_seconds() / 86400,2)) +"d"
-                                   except:
-                                       ea.dict_append(ILM_DETAILS)[i]['val'] = 'N/A'
-                               else:
-                                   try:
-                                       ea.dict_append(ILM_DETAILS)[i]['val'] = il['indices'][id][i] 
-                                   except:
-                                       ea.dict_append(ILM_DETAILS)[i]['val'] = 'N/A'
+                           a.print_details(W2)
 
-                           print(f"    {id}",end='')
-                     
-                           for i in ILM_DETAILS.keys():
-                                print (f" {ILM_DETAILS[i]['name']}:{ILM_DETAILS[i]['val']}",end='')
-       
-                           print('')
                    else:
                        for index in ds['indices']:
                            try:
@@ -354,7 +336,7 @@ def main():
     else:
         parser.print_help()
         sys.exit(1)
-    print_warns(WARN)
+    print_warns(ea.WARN)
 
 def agent_policy_rename(POLICY,NAMESPACE,NAME):
     for d in ('id','version','revision','updated_at','updated_by','agents',
@@ -412,7 +394,7 @@ def raise_warn(a,b,action,type):
     elif action == 'search' and re.search(a, b):
         return ""
     else:
-        WARN[type] = _warns[type]
+        ea.WARN[type] = _warns[type]
         return f"[!{type}]"
 
 def print_warns(WARNS):
