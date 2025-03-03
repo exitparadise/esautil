@@ -5,10 +5,7 @@
 # 
 
 from datetime import datetime
-import elasticvars as ev
-import json, requests
-
-WARN={}
+from esautil import api_request
 
 class ilmDetails:
     def __init__(self,data):
@@ -22,14 +19,6 @@ class ilmDetails:
         print(f" created:{self.details['time_since_index_creation']}", end='')
         print(f" rolledover:{self.details['age']}", end='')
         print(f" in_phase:{str(round(m.total_seconds() / 86400,2)) + 'd'} {w}")
-
-class dict_append:
-    def __init__(self, target):
-        self.target = target
-    def __getitem__(self, key):
-        return dict_append(self.target.setdefault(key, {}))
-    def __setitem__(self, key, value):
-        self.target[key] = value
 
 class indexTemplate():
     def __init__(self,data):
@@ -149,9 +138,9 @@ class agentPolicy():
 
             self.policy = data
 
-    def get(self):
-        p = api_request('GET',ev.KIBANA_HOST,f"api/fleet/agent_policies?kuery=ingest-agent-policies.name:{self.name}")
-        policy = api_request('GET',ev.KIBANA_HOST,f"api/fleet/agent_policies/{p['items'][0]['id']}")
+    def get(self,url):
+        p = api_request('GET',url,f"api/fleet/agent_policies?kuery=ingest-agent-policies.name:{self.name}")
+        policy = api_request('GET',url,f"api/fleet/agent_policies/{p['items'][0]['id']}")
         try:
             for p in policy['item']['package_policies']:
                 self.packages.append(p)
@@ -162,13 +151,13 @@ class agentPolicy():
 
     def add_policy(self,policy):
 #        print(json.dumps(policy,indent=1))
-#        resp = api_request('POST',ev.KIBANA_HOST,f"api/fleet/agent_policies",policy)
+#        resp = api_request('POST',KIBANA_HOST,f"api/fleet/agent_policies",policy)
 #        self.policy = resp['item']
         self.policy = policy
 
     def add_package(self,package):
 #        print(json.dumps(package,indent=1))
-#        p = api_request('POST',ev.KIBANA_HOST,f"api/fleet/package_policies",package)
+#        p = api_request('POST',KIBANA_HOST,f"api/fleet/package_policies",package)
 #        self.packages.append(p['item'])
         self.packages.append(package)
 
@@ -214,25 +203,10 @@ class agentPolicy():
         for pkg in self.packages:
             print(f" - {pkg['name']}")
 
-def api_request(METHOD,HOST,LOC,PAYLOAD=None):
-    url = f'https://{HOST}/{LOC}'
-    headers = {
-        'kbn-xsrf': 'reporting',
-        'Content-Type': 'application/json',
-        'Authorization': f'ApiKey {ev.API_KEY}',
-        'Elastic-Api-Version': '2023-10-31'
-    }
-    if METHOD == 'GET':
-        response = requests.get(url, headers=headers, verify=ev.SSL_VERIFY)
-    elif METHOD == 'POST':
-        response = requests.post(url, headers=headers, json=PAYLOAD, verify=ev.SSL_VERIFY)
-    elif METHOD == 'PUT':
-        response = requests.put(url, headers=headers, json=PAYLOAD, verify=ev.SSL_VERIFY)
-    else:
-       sys.exit(f"method {METHOD} not recognized")
-
-    if response.status_code == 200:
-        content = response.json()
-        return content
-    else:
-        response.raise_for_status()
+class dict_append:
+    def __init__(self, target):
+        self.target = target
+    def __getitem__(self, key):
+        return dict_append(self.target.setdefault(key, {}))
+    def __setitem__(self, key, value):
+        self.target[key] = value

@@ -7,8 +7,14 @@
 import argparse, requests, json, os, sys, re
 from datetime import datetime
 
-import elasticvars as ev
-import elasticagent as ea
+from elasticagent import *
+
+WARN={}
+API_KEY=os.getenv('ELASTIC_API_KEY')
+ELASTIC_HOST="elastic-api:9200"
+KIBANA_HOST="kibana-api:5601"
+SSL_VERIFY=False
+SPACES = ('prod','devqa','default')
 
 requests.packages.urllib3.disable_warnings() 
 
@@ -114,8 +120,8 @@ def main():
 #                p = api_request('GET',KIBANA_HOST,f"api/fleet/agent_policies?kuery=ingest-agent-policies.name:{args.object}")
 #                policy = api_request('GET',KIBANA_HOST,f"api/fleet/agent_policies/{p['items'][0]['id']}")
 
-                p = ea.agentPolicy(args.object)
-                p.get()
+                p = agentPolicy(args.object)
+                p.get(KIBANA_HOST)
                 p.print_summary()
                 sys.exit()
 #ttalpas
@@ -195,7 +201,7 @@ def main():
                        k.sort()
                        for id in k:
 
-                           a = ea.ilmDetails(il['indices'][id])
+                           a = ilmDetails(il['indices'][id])
 
                            try:
                                W2 = raise_warn(ds['ilm_policy'],il['indices'][id]['policy'],'equals','M')
@@ -240,7 +246,7 @@ def main():
             template_recreate_from_ds(args.object)
         elif args.action == 'copy':
             try:
-                t = ea.indexTemplate(api_request('GET',ELASTIC_HOST,f"_index_template/{args.object}"))
+                t = indexTemplate(api_request('GET',ELASTIC_HOST,f"_index_template/{args.object}"))
             except:
                 sys.exit(f"index template '{args.object}' not found")
 
@@ -257,7 +263,7 @@ def main():
             namespace = n[0]
 
             try:
-                t = ea.indexTemplate(api_request('GET',ELASTIC_HOST,f"_index_template/{g}"))
+                t = indexTemplate(api_request('GET',ELASTIC_HOST,f"_index_template/{g}"))
             except:
                 sys.exit(f"generic index template '{g}' not found")
 
@@ -283,7 +289,7 @@ def main():
         elif args.action == 'json':
             if args.object:
                 try:
-                    t = ea.indexTemplate(api_request('GET',ELASTIC_HOST,f"_index_template/{args.object}"))
+                    t = indexTemplate(api_request('GET',ELASTIC_HOST,f"_index_template/{args.object}"))
                     t.print_json()
                 except:
                     sys.exit(f"template not found: {args.object}")
@@ -300,14 +306,14 @@ def main():
             else:
                 sys.exit("template actions require <object>, a valid namespace or index template name")
 
-            for t in map(ea.indexTemplate, resp['index_templates']):
+            for t in map(indexTemplate, resp['index_templates']):
                W = raise_warn(args.object, t.name, 'search', 'N')
                print(f"{t.name} {W}")
                if args.action == 'details':
                    t.print_details()
 
         elif args.action == 'update':
-            t = ea.indexTemplate(api_request('GET',ELASTIC_HOST,f"_index_template/{args.object}"))
+            t = indexTemplate(api_request('GET',ELASTIC_HOST,f"_index_template/{args.object}"))
             changes = 0
             if args.component:
                 changes += t.update_component(args.component)
@@ -336,7 +342,7 @@ def main():
     else:
         parser.print_help()
         sys.exit(1)
-    print_warns(ea.WARN)
+    print_warns(WARN)
 
 def agent_policy_rename(POLICY,NAMESPACE,NAME):
     for d in ('id','version','revision','updated_at','updated_by','agents',
@@ -394,7 +400,7 @@ def raise_warn(a,b,action,type):
     elif action == 'search' and re.search(a, b):
         return ""
     else:
-        ea.WARN[type] = _warns[type]
+        WARN[type] = _warns[type]
         return f"[!{type}]"
 
 def print_warns(WARNS):
@@ -436,6 +442,29 @@ def agent_policy_rename(POLICY,NAME,NAMESPACE):
 
     del POLICY['package_policies']
     return POLICY,new_packages
+
+def api_request(METHOD,HOST,LOC,PAYLOAD=None):
+    url = f'https://{HOST}/{LOC}'
+    headers = {
+        'kbn-xsrf': 'reporting',
+        'Content-Type': 'application/json',
+        'Authorization': f'ApiKey {API_KEY}',
+        'Elastic-Api-Version': '2023-10-31'
+    }
+    if METHOD == 'GET':
+        response = requests.get(url, headers=headers, verify=SSL_VERIFY)
+    elif METHOD == 'POST':
+        response = requests.post(url, headers=headers, json=PAYLOAD, verify=SSL_VERIFY)
+    elif METHOD == 'PUT':
+        response = requests.put(url, headers=headers, json=PAYLOAD, verify=SSL_VERIFY)
+    else:
+       sys.exit(f"method {METHOD} not recognized")
+
+    if response.status_code == 200:
+        content = response.json()
+        return content
+    else:
+        response.raise_for_status()
 
 def template_recreate_from_ds(NAMESPACE):
     # get list of all data streams in namespace, and the current templates
