@@ -4,9 +4,11 @@
 # tim talpas github.festive812@passfwd.com
 # 
 
-import elasticagent as ea
 import argparse, requests, json, os, sys, re
 from datetime import datetime
+
+import elasticvars as ev
+import elasticagent as ea
 
 requests.packages.urllib3.disable_warnings() 
 
@@ -48,13 +50,6 @@ except:
     parser.print_help()
     sys.exit(0)
 
-API_KEY=os.getenv('ELASTIC_API_KEY')
-ELASTIC_HOST="elastic-api:9200"
-KIBANA_HOST="kibana-api:5601"
-
-SSL_VERIFY=False
-SPACES = ('prod','devqa','default')
-
 def main():
     if args.cmd == 'ilm':
         if args.action == 'list':
@@ -92,7 +87,6 @@ def main():
             
             for n in sorted(ns.keys()):
                 print(n)
-            
     elif args.cmd == 'agent':
         if args.action in ('list','details'):
             if args.object in SPACES:
@@ -102,7 +96,7 @@ def main():
             elif args.action == 'details':
                 pol = api_request('GET',KIBANA_HOST,f"api/fleet/agent_policies?kuery=ingest-agent-policies.name:{args.object}")
             else:
-                sys.exit("agent actions require <object>, a valid namespace name")
+                sys.exit("agent actions require <object>, a valid namespace name, agent policy name, or 'all'")
            
             for policy in pol['items']:
                 print(f"{policy['name']}:agents={policy['agents']}")
@@ -117,8 +111,14 @@ def main():
             if not args.object or not args.namespace or not args.dest:
                 sys.exit("copy action requires <object>, an agent policy to copy, <dest>, a name to copy to, and <namespace> the namespace to set in the new policy") 
             else:
-                p = api_request('GET',KIBANA_HOST,f"api/fleet/agent_policies?kuery=ingest-agent-policies.name:{args.object}")
-                policy = api_request('GET',KIBANA_HOST,f"api/fleet/agent_policies/{p['items'][0]['id']}")
+#                p = api_request('GET',KIBANA_HOST,f"api/fleet/agent_policies?kuery=ingest-agent-policies.name:{args.object}")
+#                policy = api_request('GET',KIBANA_HOST,f"api/fleet/agent_policies/{p['items'][0]['id']}")
+
+                p = ea.agentPolicy(args.object)
+                p.get()
+                p.print_summary()
+                sys.exit()
+#ttalpas
                 #new_name = re.sub("^[^-]+",args.object,args.namespace)
 
                 print(f"copy {policy['item']['name']}/{policy['item']['id']} to {args.dest}")
@@ -436,29 +436,6 @@ def agent_policy_rename(POLICY,NAME,NAMESPACE):
 
     del POLICY['package_policies']
     return POLICY,new_packages
-
-def api_request(METHOD,HOST,LOC,PAYLOAD=None):
-    url = f'https://{HOST}/{LOC}'
-    headers = {
-        'kbn-xsrf': 'reporting',
-        'Content-Type': 'application/json',
-        'Authorization': f'ApiKey {API_KEY}',
-        'Elastic-Api-Version': '2023-10-31'
-    }
-    if METHOD == 'GET':
-        response = requests.get(url, headers=headers, verify=SSL_VERIFY)
-    elif METHOD == 'POST':
-        response = requests.post(url, headers=headers, json=PAYLOAD, verify=SSL_VERIFY) 
-    elif METHOD == 'PUT':
-        response = requests.put(url, headers=headers, json=PAYLOAD, verify=SSL_VERIFY) 
-    else:
-       sys.exit(f"method {METHOD} not recognized")
-
-    if response.status_code == 200:
-        content = response.json()
-        return content
-    else:
-        response.raise_for_status()
 
 def template_recreate_from_ds(NAMESPACE):
     # get list of all data streams in namespace, and the current templates
