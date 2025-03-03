@@ -1,4 +1,4 @@
-# esactl
+# esautil
 
 Elastic Agent Control Utility
 

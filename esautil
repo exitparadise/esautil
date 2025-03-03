@@ -1,16 +1,29 @@
 #!/usr/bin/env python
 #
-# https://github.com/exitparadise/esactl.git
+# https://github.com/exitparadise/esautil.git
 # tim talpas github.festive812@passfwd.com
 # 
 
-import argparse, requests, json, os, sys, re
+import argparse, requests, json, os, sys, re, copy
 from datetime import datetime
+
+from elasticagent import *
+
+WARN={}
+API_KEY=os.getenv('ELASTIC_API_KEY')
+ELASTIC_HOST="elastic-api:9200"
+KIBANA_HOST="kibana-api:5601"
+SSL_VERIFY=False
+SPACES = ('prod','devqa','default')
 
 requests.packages.urllib3.disable_warnings() 
 
 parser = argparse.ArgumentParser(description="Elastic Agent Management Utility")
 subparsers = parser.add_subparsers(dest="cmd")
+
+parser_ns = subparsers.add_parser("ns", help="namespace actions")
+parser_ns.add_argument("action", choices=["list","details"])
+
 parser_template = subparsers.add_parser("template", help="index template actions")
 parser_template.add_argument("action", choices=["list","json","init","details","update","createfromgeneric","copy"])
 parser_template.add_argument("object", help="the namespace or index template")
@@ -43,130 +56,6 @@ except:
     parser.print_help()
     sys.exit(0)
 
-API_KEY=os.getenv('ELASTIC_API_KEY')
-ELASTIC_HOST="elastic-api:9200"
-KIBANA_HOST="kibana-api:5601"
-
-WARN={}
-SSL_VERIFY=False
-SPACES = ('prod','devqa','default')
-ILM_DETAILS = { 'policy': {'name': 'ilm', 'type': 't'},
-                'phase': {'name': 'phase', 'type': 't'},
-                'time_since_index_creation': {'name': 'created', 'type': 't'},
-                'age': {'name': 'rolledover', 'type': 't'},
-                'phase_time_millis': {'name': 'in_phase', 'type': 'd'}
-              }
-
-class dict_append:
-    def __init__(self, target):
-        self.target = target
-    def __getitem__(self, key):
-        return dict_append(self.target.setdefault(key, {}))
-    def __setitem__(self, key, value):
-        self.target[key] = value
-
-class elasticTemplate():
-    def __init__(self,data):
-        try:
-            self.template = data['index_templates'][0]['index_template']
-            self.name = data['index_templates'][0]['name']
-        except KeyError:
-            self.template = data['index_template']
-            self.name = data['name']
-
-    def __str__(self):
-        return(json.dumps(self.template,indent=1))
-
-    def print_json(self):
-        print(self.name)
-        print(json.dumps(self.template,indent=1))
-
-    def print_details(self):
-       print(f"  - priority: {self.template['priority']}")
-       try:
-         print(f"  - ilm_policy: {self.template['template']['settings']['index']['lifecycle']['name']}")
-       except KeyError:
-         print(f"  - ilm_policy: None")
-
-       try:
-         print(f"  - lifecycle_data_retention: {self.template['template']['lifecycle']['data_retention']}")
-       except KeyError:
-         print(f"  - lifecycle data retention: None")
-
-       print("  - patterns:")
-       for pat in self.template['index_patterns']:
-         print(f"    {pat}")
-       print("  - components:")
-       for comp in self.template['composed_of']:
-         print(f"    {comp}")
-
-    def get_patterns(self):
-        return self.template['index_patterns']
-
-    def update_name(self,name):
-        self.name = name
-        return 1
-
-    def update_ilm_policy(self,p):
-        count = 0
-        if p == None:
-            try:
-                del self.template['template']['settings']['index']['lifecycle']
-                count += 1
-            except KeyError:
-                pass
-        else:
-            dict_append(self.template)['template']['settings']['index']['lifecycle']['name'] = p
-            count += 1
-        return count
-
-    def update_retention(self,r):
-        count = 0
-        if r == 0:
-            dict_append(self.template)['template']['lifecycle']['enabled'] = False
-            dict_append(self.template)['template']['lifecycle']['data_retention'] = None
-            count += 1
-        elif r:
-            dict_append(self.template)['template']['lifecycle']['enabled'] = True
-            dict_append(self.template)['template']['lifecycle']['data_retention'] = f"{r}d"
-            count += 1
-        return count
-  
-    def update_component(self,c):
-        count = 0
-        if c[0] in ('a','add'):
-            if c[1] in self.template['composed_of']:
-                print(f"component template: {c[1]} is already in index template: {self.name}")
-            else: 
-                self.template['composed_of'].append(c[1])
-                count += 1
-        elif c[0] in ('r','rm','remove'):
-            if c[1] in self.template['composed_of']:
-                self.template['composed_of'].remove(c[1])
-                count += 1
-            else: 
-                print(f"component template: {c[1]} is not in index template: {self.name}")
-        else:
-           sys.exit(f"unrecognized subcommand: {c[0]}") 
-        return count
-
-    def update_patterns(self,p):
-        if type(p) is list:
-            self.template['index_patterns'] = p
-            return 1
-        else: 
-            print("not a list, skipping")
-            return 0
-        
-    def update_prio(self,p):
-        self.template['priority'] = p
-        return 1
-   
-    def unmanage(self,m):
-        self.template['_meta']['managed_by'] = m
-        self.template['_meta']['managed'] = False
-        return 1
-  
 def main():
     if args.cmd == 'ilm':
         if args.action == 'list':
@@ -195,14 +84,25 @@ def main():
                         print(f"  - datastream: {d}")
                     for c in ilms[ilm]['in_use_by']['composable_templates']:
                         print(f"  - index_template: {c}")
+    elif args.cmd == 'ns':
+        if args.action in ('list','details'):
+            ns = {}
+            pol = api_request('GET',KIBANA_HOST,f"api/fleet/agent_policies")
+            for policy in pol['items']:
+                ea.dict_append(ns)[policy['namespace']] = 1
+            
+            for n in sorted(ns.keys()):
+                print(n)
     elif args.cmd == 'agent':
         if args.action in ('list','details'):
             if args.object in SPACES:
                 pol = api_request('GET',KIBANA_HOST,f"api/fleet/agent_policies?kuery=ingest-agent-policies.namespace:{args.object}")
+            elif args.object == 'all':
+                pol = api_request('GET',KIBANA_HOST,f"api/fleet/agent_policies")
             elif args.action == 'details':
                 pol = api_request('GET',KIBANA_HOST,f"api/fleet/agent_policies?kuery=ingest-agent-policies.name:{args.object}")
             else:
-                sys.exit("agent actions require <object>, a valid namespace name")
+                sys.exit("agent actions require <object>, a valid namespace name, agent policy name, or 'all'")
            
             for policy in pol['items']:
                 print(f"{policy['name']}:agents={policy['agents']}")
@@ -217,33 +117,50 @@ def main():
             if not args.object or not args.namespace or not args.dest:
                 sys.exit("copy action requires <object>, an agent policy to copy, <dest>, a name to copy to, and <namespace> the namespace to set in the new policy") 
             else:
-                p = api_request('GET',KIBANA_HOST,f"api/fleet/agent_policies?kuery=ingest-agent-policies.name:{args.object}")
-                policy = api_request('GET',KIBANA_HOST,f"api/fleet/agent_policies/{p['items'][0]['id']}")
-                #new_name = re.sub("^[^-]+",args.object,args.namespace)
+                p = agentPolicy(args.object)
+                p.get(KIBANA_HOST)
 
-                print(f"copy {policy['item']['name']}/{policy['item']['id']} to {args.dest}")
+                print(f"copy {p.policy['name']}/{p.policy['id']} to {args.dest}")
 
-                (new_policy,packages) = agent_policy_copy(policy['item'], args.dest, args.namespace)
-                new_policy_def = api_request('POST',KIBANA_HOST,f"api/fleet/agent_policies",new_policy)
-                print(f" - new policy ID: {new_policy_def['item']['id']}")
+                n = copy.deepcopy(p)
+
+                n.update_copy_policy(args.dest,args.namespace)
+                n.delete_packages()
+
+                n.commit_policy(KIBANA_HOST)
+                print(f" - new policy ID: {n.policy['id']}")
                 
-                for pkg in packages:
-                   pkg['policy_id'] = new_policy_def['item']['id']
-                   # mysql integration password can't be copied, so we remove it and prompt user to re-add through UI
-                   W = raise_warn(pkg['package']['name'],'mysql','equals','P')
-                   if pkg['package']['name'] == 'mysql':
-                       del pkg['secret_references']
-                       for input in pkg['inputs']:
-                           if input['type'] == 'mysql/metrics':
-                               input['vars']['password']['value'] = ""
-                               for stream in input['streams']:
-                                   try:
-                                       del stream['compiled_stream'] 
-                                   except:
-                                       pass
+                for pkg in p.packages:
+                    for d in ('id','version','updated_at','updated_by','revision','created_at',
+                              'created_by','policy_id','policy_ids'):
+                         del pkg[d]
+                    new_inputs = []
+                    for i in pkg['inputs']:
+                        new_streams = []
+                        for s in i['streams']:
+                            del s['id']
+                            new_streams.append(s)
+                        del i['streams']
+                        i['streams'] = new_streams
+                        new_inputs.append(i)
+                    del pkg['inputs']
+                    pkg['inputs'] = new_inputs
+                      
+                    # mysql integration password can't be copied, so we remove it and prompt user to re-add through UI
+                    W = raise_warn(pkg['package']['name'],'mysql','equals','P')
+                    if pkg['package']['name'] == 'mysql':
+                        del pkg['secret_references']
+                        for input in pkg['inputs']:
+                            if input['type'] == 'mysql/metrics':
+                              input['vars']['password']['value'] = ""
+                              for stream in input['streams']:
+                                  try:
+                                      del stream['compiled_stream'] 
+                                  except:
+                                      pass
 
-                   pkgadd = api_request('POST',KIBANA_HOST,f"api/fleet/package_policies",pkg)
-                   print(f" - add integration: {pkgadd['item']['name']}/{pkgadd['item']['id']} {W}")
+                    res = n.add_package(KIBANA_HOST,pkg)
+                    print(f" - add integration: {res['name']}/{res['id']} {W}")
                 print("Done!")
 
         elif args.action == 'json':
@@ -289,35 +206,24 @@ def main():
                    print("  - indices:")
 
                    if args.show_lifecycle:
-                       il = api_request('GET',ELASTIC_HOST,f"{ds['name']}/_ilm/explain?human")
+                       il = api_request('GET',ELASTIC_HOST,f"{ds['name']}/_ilm/explain")
 
                        k = list(il['indices'].keys())
                        k.sort()
                        for id in k:
+
+                           a = ilmDetails(il['indices'][id])
+
                            try:
                                W2 = raise_warn(ds['ilm_policy'],il['indices'][id]['policy'],'equals','M')
-                           except:
-                               W2 = raise_warn(ds['ilm_policy'],'None','equals','M')
+                           except KeyError:
+                               try:
+                                   W2 = raise_warn(ds['ilm_policy'],'None','equals','M')
+                               except: 
+                                   W2 = ''
 
-                           for i in ILM_DETAILS.keys():
-                               if ILM_DETAILS[i]['type'] == 'd':
-                                   try:
-                                       m =  datetime.now() - datetime.fromtimestamp(il['indices'][id][i]/1000)
-                                       dict_append(ILM_DETAILS)[i]['val'] = str(round(m.total_seconds() / 86400,2)) +"d"
-                                   except:
-                                       dict_append(ILM_DETAILS)[i]['val'] = 'N/A'
-                               else:
-                                   try:
-                                       dict_append(ILM_DETAILS)[i]['val'] = il['indices'][id][i] 
-                                   except:
-                                       dict_append(ILM_DETAILS)[i]['val'] = 'N/A'
+                           a.print_details(W2)
 
-                           print(f"    {id}",end='')
-                     
-                           for i in ILM_DETAILS.keys():
-                                print (f" {ILM_DETAILS[i]['name']}:{ILM_DETAILS[i]['val']}",end='')
-       
-                           print('')
                    else:
                        for index in ds['indices']:
                            try:
@@ -351,12 +257,12 @@ def main():
             template_recreate_from_ds(args.object)
         elif args.action == 'copy':
             try:
-                t = elasticTemplate(api_request('GET',ELASTIC_HOST,f"_index_template/{args.object}"))
+                t = indexTemplate(api_request('GET',ELASTIC_HOST,f"_index_template/{args.object}"))
             except:
                 sys.exit(f"index template '{args.object}' not found")
 
             t.update_name(args.dest)
-            t.unmanage("prth")
+            t.unmanage("self")
 
             res = api_request('POST',ELASTIC_HOST,f"_index_template/{t.name}",t.template)
         elif args.action == 'createfromgeneric':
@@ -368,7 +274,7 @@ def main():
             namespace = n[0]
 
             try:
-                t = elasticTemplate(api_request('GET',ELASTIC_HOST,f"_index_template/{g}"))
+                t = indexTemplate(api_request('GET',ELASTIC_HOST,f"_index_template/{g}"))
             except:
                 sys.exit(f"generic index template '{g}' not found")
 
@@ -394,7 +300,7 @@ def main():
         elif args.action == 'json':
             if args.object:
                 try:
-                    t = elasticTemplate(api_request('GET',ELASTIC_HOST,f"_index_template/{args.object}"))
+                    t = indexTemplate(api_request('GET',ELASTIC_HOST,f"_index_template/{args.object}"))
                     t.print_json()
                 except:
                     sys.exit(f"template not found: {args.object}")
@@ -411,14 +317,14 @@ def main():
             else:
                 sys.exit("template actions require <object>, a valid namespace or index template name")
 
-            for t in map(elasticTemplate, resp['index_templates']):
+            for t in map(indexTemplate, resp['index_templates']):
                W = raise_warn(args.object, t.name, 'search', 'N')
                print(f"{t.name} {W}")
                if args.action == 'details':
                    t.print_details()
 
         elif args.action == 'update':
-            t = elasticTemplate(api_request('GET',ELASTIC_HOST,f"_index_template/{args.object}"))
+            t = indexTemplate(api_request('GET',ELASTIC_HOST,f"_index_template/{args.object}"))
             changes = 0
             if args.component:
                 changes += t.update_component(args.component)
@@ -448,6 +354,43 @@ def main():
         parser.print_help()
         sys.exit(1)
     print_warns(WARN)
+
+def agent_policy_rename(POLICY,NAMESPACE,NAME):
+    for d in ('id','version','revision','updated_at','updated_by','agents',
+              'unprivileged_agents','status','is_managed','is_protected','schema_version','inactivity_timeout'):
+        del POLICY[d]
+    
+    POLICY['namespace'] = NAMESPACE
+    POLICY['name'] = NAME
+
+    new_packages = []
+    for p in POLICY['package_policies']:
+        new_name = re.sub("^[^-]+",NAMESPACE,p['name'])
+        new_name = re.sub(" \(.*\)","",new_name)
+        p['name'] = new_name
+        for d in ('id','version','updated_at','updated_by','revision','created_at','created_by','policy_id','policy_ids'):
+            del p[d]
+
+        new_inputs = []
+        for i in p['inputs']:
+            new_streams = []
+            for s in i['streams']:
+                del s['id']
+                new_streams.append(s)
+
+            del i['streams']
+            i['streams'] = new_streams
+
+            new_inputs.append(i)
+
+        del p['inputs']
+        p['inputs'] = new_inputs
+
+        new_packages.append(p)
+
+    del POLICY['package_policies']
+    #POLICY['package_policies'] = new_packages
+    return POLICY,new_packages
 
 def ilm_phase_show(P,PHASE):
     print(f"  - {P}:")
@@ -522,9 +465,9 @@ def api_request(METHOD,HOST,LOC,PAYLOAD=None):
     if METHOD == 'GET':
         response = requests.get(url, headers=headers, verify=SSL_VERIFY)
     elif METHOD == 'POST':
-        response = requests.post(url, headers=headers, json=PAYLOAD, verify=SSL_VERIFY) 
+        response = requests.post(url, headers=headers, json=PAYLOAD, verify=SSL_VERIFY)
     elif METHOD == 'PUT':
-        response = requests.put(url, headers=headers, json=PAYLOAD, verify=SSL_VERIFY) 
+        response = requests.put(url, headers=headers, json=PAYLOAD, verify=SSL_VERIFY)
     else:
        sys.exit(f"method {METHOD} not recognized")
 
