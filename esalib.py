@@ -6,7 +6,7 @@
 
 import json, re
 from datetime import datetime
-from esautil import api_request
+from esafunc import api_request
 
 class ilmDetails:
     def __init__(self,data):

@@ -7,7 +7,8 @@
 import argparse, requests, json, os, sys, re, copy
 from datetime import datetime
 
-from elasticagent import *
+from esafunc import api_request
+from esalib import *
 
 WARN={}
 API_KEY=os.getenv('ELASTIC_API_KEY')
