@@ -356,43 +356,6 @@ def main():
         sys.exit(1)
     print_warns(WARN)
 
-def agent_policy_rename(POLICY,NAMESPACE,NAME):
-    for d in ('id','version','revision','updated_at','updated_by','agents',
-              'unprivileged_agents','status','is_managed','is_protected','schema_version','inactivity_timeout'):
-        del POLICY[d]
-    
-    POLICY['namespace'] = NAMESPACE
-    POLICY['name'] = NAME
-
-    new_packages = []
-    for p in POLICY['package_policies']:
-        new_name = re.sub("^[^-]+",NAMESPACE,p['name'])
-        new_name = re.sub(" \(.*\)","",new_name)
-        p['name'] = new_name
-        for d in ('id','version','updated_at','updated_by','revision','created_at','created_by','policy_id','policy_ids'):
-            del p[d]
-
-        new_inputs = []
-        for i in p['inputs']:
-            new_streams = []
-            for s in i['streams']:
-                del s['id']
-                new_streams.append(s)
-
-            del i['streams']
-            i['streams'] = new_streams
-
-            new_inputs.append(i)
-
-        del p['inputs']
-        p['inputs'] = new_inputs
-
-        new_packages.append(p)
-
-    del POLICY['package_policies']
-    #POLICY['package_policies'] = new_packages
-    return POLICY,new_packages
-
 def ilm_phase_show(P,PHASE):
     print(f"  - {P}:")
     print(f"    min_age: {PHASE['min_age']}")
@@ -419,42 +382,6 @@ def print_warns(WARNS):
     for w in WARNS:
         print("* " + WARNS[w])
         
-def agent_policy_rename(POLICY,NAME,NAMESPACE):
-    for d in ('id','version','revision','updated_at','updated_by','agents',
-              'unprivileged_agents','status','is_managed','is_protected','schema_version','inactivity_timeout'):
-        del POLICY[d]
-    
-    POLICY['namespace'] = NAMESPACE
-    POLICY['name'] = NAME
-
-    new_packages = []
-    for p in POLICY['package_policies']:
-        new_name = re.sub("^[^-]+",NAMESPACE,p['name'])
-        new_name = re.sub(" \(.*\)","",new_name)
-        p['name'] = new_name
-        for d in ('id','version','updated_at','updated_by','revision','created_at','created_by','policy_id','policy_ids'):
-            del p[d]
-
-        new_inputs = []
-        for i in p['inputs']:
-            new_streams = []
-            for s in i['streams']:
-                del s['id']
-                new_streams.append(s)
-
-            del i['streams']
-            i['streams'] = new_streams
-
-            new_inputs.append(i)
-
-        del p['inputs']
-        p['inputs'] = new_inputs
-
-        new_packages.append(p)
-
-    del POLICY['package_policies']
-    return POLICY,new_packages
-
 def api_request(METHOD,HOST,LOC,PAYLOAD=None):
     url = f'https://{HOST}/{LOC}'
     headers = {
