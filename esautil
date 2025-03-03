@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 #
-# https://github.com/exitparadise/esactl.git
+# https://github.com/exitparadise/esautil.git
 # tim talpas github.festive812@passfwd.com
 # 
 
-import argparse, requests, json, os, sys, re
+import argparse, requests, json, os, sys, re, copy
 from datetime import datetime
 
 from elasticagent import *
@@ -117,39 +117,50 @@ def main():
             if not args.object or not args.namespace or not args.dest:
                 sys.exit("copy action requires <object>, an agent policy to copy, <dest>, a name to copy to, and <namespace> the namespace to set in the new policy") 
             else:
-#                p = api_request('GET',KIBANA_HOST,f"api/fleet/agent_policies?kuery=ingest-agent-policies.name:{args.object}")
-#                policy = api_request('GET',KIBANA_HOST,f"api/fleet/agent_policies/{p['items'][0]['id']}")
-
                 p = agentPolicy(args.object)
                 p.get(KIBANA_HOST)
-                p.print_summary()
-                sys.exit()
-#ttalpas
-                #new_name = re.sub("^[^-]+",args.object,args.namespace)
 
-                print(f"copy {policy['item']['name']}/{policy['item']['id']} to {args.dest}")
+                print(f"copy {p.policy['name']}/{p.policy['id']} to {args.dest}")
 
-                (new_policy,packages) = agent_policy_rename(policy['item'], args.dest, args.namespace)
-                new_policy_def = api_request('POST',KIBANA_HOST,f"api/fleet/agent_policies",new_policy)
-                print(f" - new policy ID: {new_policy_def['item']['id']}")
+                n = copy.deepcopy(p)
+
+                n.update_copy_policy(args.dest,args.namespace)
+                n.delete_packages()
+
+                n.commit_policy(KIBANA_HOST)
+                print(f" - new policy ID: {n.policy['id']}")
                 
-                for pkg in packages:
-                   pkg['policy_id'] = new_policy_def['item']['id']
-                   # mysql integration password can't be copied, so we remove it and prompt user to re-add through UI
-                   W = raise_warn(pkg['package']['name'],'mysql','equals','P')
-                   if pkg['package']['name'] == 'mysql':
-                       del pkg['secret_references']
-                       for input in pkg['inputs']:
-                           if input['type'] == 'mysql/metrics':
-                               input['vars']['password']['value'] = ""
-                               for stream in input['streams']:
-                                   try:
-                                       del stream['compiled_stream'] 
-                                   except:
-                                       pass
+                for pkg in p.packages:
+                    for d in ('id','version','updated_at','updated_by','revision','created_at',
+                              'created_by','policy_id','policy_ids'):
+                         del pkg[d]
+                    new_inputs = []
+                    for i in pkg['inputs']:
+                        new_streams = []
+                        for s in i['streams']:
+                            del s['id']
+                            new_streams.append(s)
+                        del i['streams']
+                        i['streams'] = new_streams
+                        new_inputs.append(i)
+                    del pkg['inputs']
+                    pkg['inputs'] = new_inputs
+                      
+                    # mysql integration password can't be copied, so we remove it and prompt user to re-add through UI
+                    W = raise_warn(pkg['package']['name'],'mysql','equals','P')
+                    if pkg['package']['name'] == 'mysql':
+                        del pkg['secret_references']
+                        for input in pkg['inputs']:
+                            if input['type'] == 'mysql/metrics':
+                              input['vars']['password']['value'] = ""
+                              for stream in input['streams']:
+                                  try:
+                                      del stream['compiled_stream'] 
+                                  except:
+                                      pass
 
-                   pkgadd = api_request('POST',KIBANA_HOST,f"api/fleet/package_policies",pkg)
-                   print(f" - add integration: {pkgadd['item']['name']}/{pkgadd['item']['id']} {W}")
+                    res = n.add_package(KIBANA_HOST,pkg)
+                    print(f" - add integration: {res['name']}/{res['id']} {W}")
                 print("Done!")
 
         elif args.action == 'json':

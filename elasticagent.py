@@ -1,9 +1,10 @@
 #!/usr/bin/env python
 #
-# https://github.com/exitparadise/esactl.git
+# https://github.com/exitparadise/esautil.git
 # tim talpas github.festive812@passfwd.com
 # 
 
+import json, re
 from datetime import datetime
 from esautil import api_request
 
@@ -149,19 +150,22 @@ class agentPolicy():
             pass
         self.policy = policy['item']
 
-    def add_policy(self,policy):
-#        print(json.dumps(policy,indent=1))
-#        resp = api_request('POST',KIBANA_HOST,f"api/fleet/agent_policies",policy)
-#        self.policy = resp['item']
-        self.policy = policy
+    def commit_policy(self,url):
+        resp = api_request('POST',url,f"api/fleet/agent_policies",self.policy)
+        self.policy = resp['item']
+    
+    def delete_packages(self):
+        self.packages = []
 
-    def add_package(self,package):
-#        print(json.dumps(package,indent=1))
-#        p = api_request('POST',KIBANA_HOST,f"api/fleet/package_policies",package)
-#        self.packages.append(p['item'])
-        self.packages.append(package)
+    def add_package(self,url,package):
+        package['policy_id'] = self.policy['id']
+        package['name'] = self.policy['name'] + "-" + package['package']['name']
 
-    def update_policy(self,newname,newspace='default'):
+        p = api_request('POST',url,f"api/fleet/package_policies",package)
+        self.packages.append(p['item'])
+        return (p['item'])
+
+    def update_copy_policy(self,newname,newspace='default'):
         self.name = newname
         for d in ('id','version','revision','updated_at','updated_by','agents',
                   'unprivileged_agents','status','is_managed','is_protected','schema_version','inactivity_timeout'):
@@ -169,32 +173,11 @@ class agentPolicy():
         self.policy['name'] = newname
         self.policy['namespace'] = newspace
 
-        return self.policy
-
-    def update_packages(self,newname,newspace='default'):
-        for p in self.packages:
-            new_name = re.sub("^[^-]+",newspace,p['name'])
-            p['name'] = new_name
-            for d in ('id','version','updated_at','updated_by','revision','created_at',
-                      'created_by','policy_id','policy_ids'):
-                 del p[d]
-            new_inputs = []
-            for i in p['inputs']:
-                new_streams = []
-                for s in i['streams']:
-                    del s['id']
-                    new_streams.append(s)
-                del i['streams']
-                i['streams'] = new_streams
-                new_inputs.append(i)
-            del p['inputs']
-            p['inputs'] = new_inputs
-
-        return self.packages
-
     def print_json(self):
         print(self.name)
+        print("POLICY:")
         print(json.dumps(self.policy,indent=1))
+        print("PACKAGES:")
         print(json.dumps(self.packages,indent=1))
 
     def print_summary(self):
