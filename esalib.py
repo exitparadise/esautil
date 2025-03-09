@@ -13,13 +13,16 @@ class ilmDetails:
         self.details = data
     
     def print_details(self,w):
-        m = datetime.now() - datetime.fromtimestamp(self.details['phase_time_millis']/1000)
-        print(f"    {self.details['index']}", end='')
-        print(f" ilm:{self.details['policy']}", end='')
-        print(f" phase:{self.details['phase']}", end='')
-        print(f" created:{self.details['time_since_index_creation']}", end='')
-        print(f" rolledover:{self.details['age']}", end='')
-        print(f" in_phase:{str(round(m.total_seconds() / 86400,2)) + 'd'} {w}")
+        try:
+            m = datetime.now() - datetime.fromtimestamp(self.details['phase_time_millis']/1000)
+            print(f"    {self.details['index']}", end='')
+            print(f" ilm:{self.details['policy']}", end='')
+            print(f" phase:{self.details['phase']}", end='')
+            print(f" created:{self.details['time_since_index_creation']}", end='')
+            print(f" rolledover:{self.details['age']}", end='')
+            print(f" in_phase:{str(round(m.total_seconds() / 86400,2)) + 'd'} {w}")
+        except: 
+            print(f"    {self.details['index']} ilm:None")
 
 class indexTemplate():
     def __init__(self,data):
@@ -38,7 +41,10 @@ class indexTemplate():
         print(json.dumps(self.template,indent=1))
 
     def print_details(self):
-       print(f"  - priority: {self.template['priority']}")
+       try:
+         print(f"  - priority: {self.template['priority']}")
+       except:
+         print(f"  - priority: 0")
        try:
          print(f"  - ilm_policy: {self.template['template']['settings']['index']['lifecycle']['name']}")
        except KeyError:
@@ -115,14 +121,16 @@ class indexTemplate():
             return 0
         
     def update_prio(self,p):
-        self.template['priority'] = p[0]
+        if type(p) is list:
+            self.template['priority'] = p[0]
+        else:
+            self.template['priority'] = p
         return 1
    
     def unmanage(self,m):
-        self.template['_meta']['managed_by'] = m
-        self.template['_meta']['managed'] = False
+        dict_append(self.template)['_meta']['managed_by'] = m
+        dict_append(self.template)['_meta']['managed'] = False
         return 1
-
 
 class agentPolicy():
     def __init__(self, name, data={}):
@@ -139,9 +147,9 @@ class agentPolicy():
 
             self.policy = data
 
-    def get(self,url):
-        p = api_request('GET',url,f"api/fleet/agent_policies?kuery=ingest-agent-policies.name:{self.name}")
-        policy = api_request('GET',url,f"api/fleet/agent_policies/{p['items'][0]['id']}")
+    def get(self,key,url,v):
+        pid = api_request('GET',key,url,v,f"api/fleet/agent_policies?kuery=ingest-agent-policies.name:{self.name}")
+        policy = api_request('GET',key,url,v,f"api/fleet/agent_policies/{pid['items'][0]['id']}")
         try:
             for p in policy['item']['package_policies']:
                 self.packages.append(p)
@@ -150,18 +158,21 @@ class agentPolicy():
             pass
         self.policy = policy['item']
 
-    def commit_policy(self,url):
-        resp = api_request('POST',url,f"api/fleet/agent_policies",self.policy)
+    def commit_policy(self,key,url,v):
+        resp = api_request('POST',key,url,v,f"api/fleet/agent_policies",self.policy)
         self.policy = resp['item']
     
     def delete_packages(self):
         self.packages = []
 
-    def add_package(self,url,package):
+    def add_package(self,key,url,v,package,num):
         package['policy_id'] = self.policy['id']
-        package['name'] = self.policy['name'] + "-" + package['package']['name']
+        if num > 1:
+            package['name'] = self.policy['name'] + "-" + package['package']['name'] + str(num)
+        else: 
+            package['name'] = self.policy['name'] + "-" + package['package']['name']
 
-        p = api_request('POST',url,f"api/fleet/package_policies",package)
+        p = api_request('POST',key,url,v,f"api/fleet/package_policies",package)
         self.packages.append(p['item'])
         return (p['item'])
 
