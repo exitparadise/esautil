@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 #
 # https://github.com/exitparadise/esautil.git
-# tim talpas github.festive812@passfwd.com
+# code@mailshaft.com
 # 
 
 import json, re
@@ -13,16 +13,13 @@ class ilmDetails:
         self.details = data
     
     def print_details(self,w):
-        try:
-            m = datetime.now() - datetime.fromtimestamp(self.details['phase_time_millis']/1000)
-            print(f"    {self.details['index']}", end='')
-            print(f" ilm:{self.details['policy']}", end='')
-            print(f" phase:{self.details['phase']}", end='')
-            print(f" created:{self.details['time_since_index_creation']}", end='')
-            print(f" rolledover:{self.details['age']}", end='')
-            print(f" in_phase:{str(round(m.total_seconds() / 86400,2)) + 'd'} {w}")
-        except: 
-            print(f"    {self.details['index']} ilm:None")
+        m = datetime.now() - datetime.fromtimestamp(self.details['phase_time_millis']/1000)
+        print(f"    {self.details['index']}", end='')
+        print(f" ilm:{self.details['policy']}", end='')
+        print(f" phase:{self.details['phase']}", end='')
+        print(f" created:{self.details['time_since_index_creation']}", end='')
+        print(f" rolledover:{self.details['age']}", end='')
+        print(f" in_phase:{str(round(m.total_seconds() / 86400,2)) + 'd'} {w}")
 
 class indexTemplate():
     def __init__(self,data):
@@ -81,6 +78,10 @@ class indexTemplate():
             dict_append(self.template)['template']['settings']['index']['lifecycle']['name'] = p
             count += 1
         return count
+
+    def update_ralias(self,ra):
+        dict_append(self.template)['template']['settings']['index']['lifecycle']['rollover_alias'] = ra
+        return 1
 
     def update_retention(self,r):
         count = 0

@@ -22,31 +22,72 @@ API Permissions for Elastic Agent/Fleet Managment
 
 ```
 {
-  "fleet-mgmt-api-permissions": {
+  "fleet-mgmt-api": {
     "cluster": [
       "manage_ilm",
       "write_fleet_secrets",
+      "manage_index_templates",
       "manage_pipeline",
       "manage_logstash_pipelines",
       "manage_ingest_pipelines",
-      "manage_data_stream_global_retention"
+      "manage_data_stream_global_retention",
+      "cancel_task",
+      "monitor"
     ],
     "indices": [
       {
-        "names": [ "logs*", "metrics*" ],
-        "privileges": [ "manage", "manage_ilm", "manage_data_stream_lifecycle" ],
+        "names": [
+          "*"
+        ],
+        "privileges": [
+          "manage",
+          "manage_ilm",
+          "manage_data_stream_lifecycle"
+        ],
         "field_security": {
-          "grant": [ "*" ],
+          "grant": [
+            ".ds-*",
+            "logs*",
+            "metrics*",
+            "traces*"
+          ],
+          "except": [
+            ".ds-merged-*"
+          ]
+        },
+        "allow_restricted_indices": true
+      },
+      {
+        "names": [
+          ".ds-merged-*",
+          "partial-*"
+        ],
+        "privileges": [
+          "write",
+          "read",
+          "manage",
+          "manage_ilm",
+          "manage_data_stream_lifecycle"
+        ],
+        "field_security": {
+          "grant": [
+            "*"
+          ],
           "except": []
         },
         "allow_restricted_indices": true
-      } 
+      }
     ],
     "applications": [
       {
         "application": "kibana-.kibana",
-        "privileges": [ "feature_fleetv2.all", "feature_fleet.all" ],
-        "resources": [ "*" ]
+        "privileges": [
+          "feature_fleetv2.all",
+          "feature_fleet.all"
+        ],
+        "resources": [
+          "*"
+        ]
       }
     ],
     "run_as": [],

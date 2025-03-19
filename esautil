@@ -1,20 +1,20 @@
 #!/usr/bin/env python
 #
 # https://github.com/exitparadise/esautil.git
-# tim talpas github.festive812@passfwd.com
+# code@mailshaft.com
 # 
 
-import argparse, json, requests, os, sys, re, copy
+import argparse, json, requests, os, sys, re, copy, time
 from datetime import datetime
 
-from esafunc import api_request
+from esafunc import api_request, api_request_tf
 from esalib import *
 
 WARN={}
-MANAGER="ttalpas"
-SSL_VERIFY=False
-SPACES = ('prod','devqa','default')
+SSL_VERIFY=True
+SPACES = ('prod','dev','qa','default')
 API_KEY=os.getenv('ELASTIC_API_KEY')
+MANAGER="ttalpas"
 
 ELASTIC_HOST="elastic-api:9200"
 KIBANA_HOST="kibana-api:5601"
@@ -28,14 +28,17 @@ parser_ns = subparsers.add_parser("ns", help="namespace actions")
 parser_ns.add_argument("action", choices=["list","details"])
 
 parser_task = subparsers.add_parser("task", help="task actions")
-parser_task.add_argument("action", choices=["list","details","cancel"])
+parser_task.add_argument("action", choices=["list","details","cancel","watch"])
 parser_task.add_argument("object", nargs='?', help="task id")
+parser_task.add_argument("-w","--watch", nargs=1, type=int, action='store', help="when action is 'watch', use this interval")
 
 parser_index = subparsers.add_parser("index", help="index actions")
-parser_index.add_argument("action", choices=["details","create","rmalias"])
+parser_index.add_argument("action", choices=["details","create","rmalias","reindex","update"])
 parser_index.add_argument("object", help="the index name")
 parser_index.add_argument("target", nargs="?", help="the index name")
 parser_index.add_argument("-a","--alias", action='store', nargs=1, help="when action is 'create', add this as an alias")
+parser_index.add_argument("-l","--lifecycle_policy", nargs=1, help="when action is 'update', attach policy to this index. 'none' means remove policy")
+parser_index.add_argument("-w","--watch", nargs=1, type=int, action='store', help="when action is 'reindex', go into 'watch' mode and exit when complete")
 
 parser_template = subparsers.add_parser("template", help="index template actions")
 parser_template.add_argument("action", choices=["list","json","init","details","update","createfromgeneric","copy"])
@@ -46,9 +49,11 @@ parser_template.add_argument("-o", "--prio", nargs=1, type=int, help="when actio
 parser_template.add_argument("-c", "--component", nargs=2, help="when action is 'update', add/remove component: <a|add|r|rm|remove> <component>")
 parser_template.add_argument("-l", "--lifecycle_policy", nargs=1, help="when action is 'update', add this policy. 'none' means remove policy")
 parser_template.add_argument("-d", "--retention-days", nargs=1, type=int, help="when action is 'init' or 'update', number of retention days to apply")
+parser_template.add_argument("-n", "--namespace", nargs=1, help="when action is 'createfromgeneric', use this namespace")
+parser_template.add_argument("-r", "--rollover-alias", nargs=1, help="when actions is 'copy' or 'update', use this as rollover_index")
 
 parser_agent = subparsers.add_parser("agent", help="agent policy actions")
-parser_agent.add_argument("action", choices=["list","details","copy"])
+parser_agent.add_argument("action", choices=["list","details","copy","json"])
 parser_agent.add_argument("object", nargs="?", help="the namespace or agent policy")
 parser_agent.add_argument("dest", nargs="?", help="when action is 'copy', the new agent policy to copy to")
 parser_agent.add_argument("namespace", nargs="?", help="when action is 'copy', the namespace to set in new policy")
@@ -64,6 +69,11 @@ parser_ilm = subparsers.add_parser("ilm", help="ILM actions")
 parser_ilm.add_argument("action", choices=["list","details","json"])
 parser_ilm.add_argument("object", nargs="?", help="the ilm policy we would like to target, used with 'details' and 'json'")
 
+parser_lc = subparsers.add_parser("lc", help="lifecycle actions")
+parser_lc.add_argument("action", choices=["details","move"])
+parser_lc.add_argument("object", help="the index/datastream")
+parser_lc.add_argument("target", nargs="?", help="when action is 'move', the phase we would like to move to")
+
 try:
     args = parser.parse_args()
 except:
@@ -72,7 +82,32 @@ except:
 
 def main():
     if args.cmd == 'index':
-        if args.action == 'create':
+        if args.action == 'reindex':
+            if args.target:
+                payload = { "source": { "index": args.object }, "dest": { "index": args.target } }
+                resp = api_request('POST',API_KEY,ELASTIC_HOST,SSL_VERIFY,"_reindex?wait_for_completion=false",payload)
+                try:
+                    task = api_request('GET',API_KEY,ELASTIC_HOST,SSL_VERIFY,f"_tasks/{resp['task']}?human")
+                except requests.exceptions.HTTPError:
+                    sys.exit(f"no task found with id: {resp['task']}, it must have completed already")
+                
+                if args.watch and type(args.watch) is list:
+                    watch_interval = args.watch[0]
+                elif args.watch:
+                    watch_interval = args.watch
+                else:
+                    watch_interval = False
+                   
+                if watch_interval > 10:
+                    task_watch(resp['task'],watch_interval)
+                elif watch_interval <= 10 and watch_interval is not False:
+                    task_watch(resp['task'],10)
+                else:
+                    time.sleep(1)
+                    print_task(resp['task'],'long',task)
+            else:
+                sys.exit("reindex requires <object>: a source index, and <target>: a destination index")
+        elif args.action == 'create':
             if not args.object or not args.alias:
                 sys.exit(f"create requires <object>, an index name and -a <name>, an alias name")
             else:
@@ -84,6 +119,18 @@ def main():
                 payload = { "aliases": { f"{alias}": { "is_write_index": True } }, "settings": { "lifecycle": { "rollover_alias": alias } } }
                 resp = api_request('PUT',API_KEY,ELASTIC_HOST,SSL_VERIFY,args.object,payload)
                 print(resp)
+        elif args.action == 'update':
+            if args.lifecycle_policy:
+                if type(args.lifecycle_policy) is list:
+                    pol = args.lifecycle_policy[0]
+                else:
+                    pol = args.lifecycle_policy
+
+                payload = { "index.lifecycle.name": pol, "index.lifecycle.prefer_ilm": True }
+                resp = api_request('PUT',API_KEY,ELASTIC_HOST,SSL_VERIFY,f"{args.object}/_settings",payload)
+                print(resp)
+            else:
+                sys.exit("index update needs -a <lifecycle policy>")
         elif args.action == 'rmalias':
             if args.target: 
                 payload = { "actions": [ { "remove": { "index": args.object, "alias": args.target } } ] }
@@ -91,7 +138,17 @@ def main():
                 print(resp)
         elif args.action == 'details':
             resp = api_request('GET',API_KEY,ELASTIC_HOST,SSL_VERIFY,args.object)
+            try:
+                resp[args.object]
+            except:
+                sys.exit(f"{args.object} is not an index")
+
+            stat = api_request('GET',API_KEY,ELASTIC_HOST,SSL_VERIFY,f"/{args.object}/_stats?human")
+
             print(f"{args.object}:")
+            print(f"  - size: {stat['_all']['primaries']['store']['size']}")
+            print(f"  - docs: {stat['_all']['primaries']['docs']['count']}")
+
             for a in resp[args.object]['aliases']:
                 print(f"  - alias: {a}")
             try:
@@ -116,15 +173,23 @@ def main():
                     task = api_request('GET',API_KEY,ELASTIC_HOST,SSL_VERIFY,f"_tasks/{args.object}?human")
                 except requests.exceptions.HTTPError:
                     sys.exit(f"no task found with id: {args.object}")
-                print(f"task: {args.object}")
-                print(f"  - action: {task['task']['action']}")
-                print(f"  - description: {task['task']['description']}")
-                print(f"  - running_time: {task['task']['running_time']}")
-                print(f"    progress:")
-                perc = round(task['task']['status']['created'] / task['task']['status']['total'] * 100,1)
-                print(f"      -  {task['task']['status']['created']}/{task['task']['status']['total']} {perc}%")
+                
+                print_task(args.object,'long',task)
             else:
                 sys.exit(f"{args.action} needs an <object>, a task id")
+        elif args.action == 'watch':
+            if args.watch and type(args.watch) is list:
+                watch_interval = args.watch[0]
+            elif args.watch:
+                watch_interval = args.watch
+            else:
+                watch_interval = 30
+                   
+            if watch_interval < 10:
+                task_watch(args.object,10)
+            else:
+                task_watch(args.object,watch_interval)
+
         elif args.action == 'cancel':
             if args.object:
                 resp = api_request('POST',API_KEY,ELASTIC_HOST,SSL_VERIFY,f"_tasks/{args.object}/_cancel")
@@ -132,11 +197,34 @@ def main():
             else:
                 sys.exit(f"{args.action} needs an <object>, a task id")
 
+    elif args.cmd == 'lc':
+        if args.action == 'details':
+            il = api_request('GET',API_KEY,ELASTIC_HOST,SSL_VERIFY,f"{args.object}/_ilm/explain")
+            print(f"{il['indices'][args.object]['index']}:")
+            print(f"  - ilm: {il['indices'][args.object]['policy']}")
+            print(f"    phase: {il['indices'][args.object]['phase']}")
+            print(f"    action: {il['indices'][args.object]['action']}")
+            print(f"    step: {il['indices'][args.object]['step']}")
+            if il['indices'][args.object]['step'] == 'ERROR':
+                print(f"      ERROR: {il['indices'][args.object]['step_info']['reason']}")
+        elif args.action == 'move':
+            il = api_request('GET',API_KEY,ELASTIC_HOST,SSL_VERIFY,f"{args.object}/_ilm/explain")
+            phase = il['indices'][args.object]['phase']
+            action = il['indices'][args.object]['action']
+            name = il['indices'][args.object]['step']
+
+            payload = { "current_step": { "phase": phase, "action": action, "name": name }, "next_step": { "phase": args.target } }
+            resp = api_request('POST',API_KEY,ELASTIC_HOST,SSL_VERIFY,f"_ilm/move/{args.object}",payload)
+            print(resp)
+        else:
+            sys.exit(f"unrecognized lifecycle action: {args.action}")
+
     elif args.cmd == 'ilm':
         if args.action == 'list':
             ilms = api_request('GET',API_KEY,ELASTIC_HOST,SSL_VERIFY,f"_ilm/policy")
             for ilm in ilms:
                 print(ilm)
+
         elif args.action in ('details', 'json'):
             try:
                 ilms = api_request('GET',API_KEY,ELASTIC_HOST,SSL_VERIFY,f"_ilm/policy/{args.object}")
@@ -189,6 +277,12 @@ def main():
                     print("    integrations:")
                     for input in full['item']['inputs']:
                         print(f"    - {input['name']} - {input['type']}")
+        elif args.action == 'json':
+            pol = api_request('GET',API_KEY,KIBANA_HOST,SSL_VERIFY,f"api/fleet/agent_policies?kuery=ingest-agent-policies.name:{args.object}")
+            print(json.dumps(pol,indent=1))
+            for policy in pol['items']:
+                full = api_request('GET',API_KEY,KIBANA_HOST,SSL_VERIFY,f"api/fleet/agent_policies/{policy['id']}/full")
+                print(json.dumps(full,indent=1))
         elif args.action == 'copy':
             if not args.object or not args.namespace or not args.dest:
                 sys.exit("copy action requires <object>, an agent policy to copy, <dest>, a name to copy to, and <namespace> the namespace to set in the new policy") 
@@ -228,7 +322,7 @@ def main():
                     pkg['inputs'] = new_inputs
                       
                     # mysql integration password can't be copied, so we remove it and prompt user to re-add through UI
-                    W = raise_warn(pkg['package']['name'],'mysql','notequals','P')
+                    W = raise_warn(pkg['package']['name'],'mysql','ne','P')
                     if pkg['package']['name'] == 'mysql':
                         del pkg['secret_references']
                         for input in pkg['inputs']:
@@ -265,6 +359,7 @@ def main():
             elif args.object and args.object != 'all':
                 try:
                     resp=api_request('GET',API_KEY,ELASTIC_HOST,SSL_VERIFY,f"_data_stream/{args.object}")
+                    stat=api_request('GET',API_KEY,ELASTIC_HOST,SSL_VERIFY,f"/{args.object}/_stats?human")
                 except:
                     sys.exit(f"could not find datastream: {args.object}")
             elif args.object == 'all':
@@ -272,10 +367,11 @@ def main():
             else:
                 sys.exit("datastream actions require <object>, a valid namespace or a datastream name")
 
+            if len(resp['data_streams']) < 1:
+                sys.exit(f"{args.object} is not a datastream or doesn't exist")
             for ds in resp['data_streams']:
                
-               #W = raise_warn(args.object,ds['template'],'search','N')
-               W = ''
+               W = raise_warn(args.object,ds['template'],'search','N')
 
                if args.action == 'details':
                    print(f"{ds['name']}:")
@@ -283,6 +379,11 @@ def main():
                    try:
                        print(f"  - ilm_policy: {ds['ilm_policy']}")
                    except KeyError: 
+                       pass
+                   try:
+                       print(f"  - size: {stat['_all']['primaries']['store']['size']}")
+                       print(f"  - docs: {stat['_all']['primaries']['docs']['count']}")
+                   except:
                        pass
                    print("  - indices:")
 
@@ -296,10 +397,10 @@ def main():
                            a = ilmDetails(il['indices'][id])
 
                            try:
-                               W2 = raise_warn(ds['ilm_policy'],il['indices'][id]['policy'],'equals','M')
+                               W2 = raise_warn(ds['ilm_policy'],il['indices'][id]['policy'],'eq','M')
                            except KeyError:
                                try:
-                                   W2 = raise_warn(ds['ilm_policy'],'None','equals','M')
+                                   W2 = raise_warn(ds['ilm_policy'],'None','eq','M')
                                except: 
                                    W2 = ''
 
@@ -308,7 +409,7 @@ def main():
                    else:
                        for index in ds['indices']:
                            try:
-                               W2 = raise_warn(ds['ilm_policy'],index['ilm_policy'],'equals','M')
+                               W2 = raise_warn(ds['ilm_policy'],index['ilm_policy'],'eq','M')
                                print(f"    {index['index_name']} ilm:{index['ilm_policy']} {W2}")
                            except KeyError:
                                print(f"    {index['index_name']}")
@@ -354,10 +455,15 @@ def main():
             except:
                 sys.exit(f"index template '{args.object}' not found")
 
+            if name_exists('template',args.dest):
+               sys.exit(f"template: {args.dest} already exists. choose a different name")
+
             if args.pattern:
                 t.update_patterns(args.pattern)
             if args.prio:
                 t.update_prio(args.prio)
+            if args.rollover_alias:
+                t.update_ralias(args.rollover_alias)
 
             t.update_name(args.dest)
             t.unmanage(MANAGER)
@@ -367,16 +473,32 @@ def main():
             if not args.object:
                sys.exit("createfromgeneric requires the name of an existing generic template appended with '-<namespace>'")
 
-            g = re.sub("\-[^-]+$","",args.object)
-            n = re.findall("[^-]+$",args.object)
-            namespace = n[0]
+            if args.dest:
+               if not args.namespace:
+                   sys.exit("when action is {args.action} and <dest> is specified, you must also include -n <namespace>") 
+               else:
+                   gen_template = args.dest
+                   if type(args.namespace) is list:
+                       namespace = args.namespace[0]
+                   else:
+                       namespace = args.namespace
+
+            else:
+                gen_template = re.sub("\-[^-]+$","",args.object)
+                n = re.findall("[^-]+$",args.object)
+                namespace = n[0]
+
+            new_name = re.sub("\@template","",args.object)
+            if name_exists('template',new_name):
+               sys.exit(f"template: {new_name} already exists. choose a different name")
 
             try:
-                t = indexTemplate(api_request('GET',API_KEY,ELASTIC_HOST,SSL_VERIFY,f"_index_template/{g}"))
+                t = indexTemplate(api_request('GET',API_KEY,ELASTIC_HOST,SSL_VERIFY,f"_index_template/{gen_template}"))
             except:
-                sys.exit(f"generic index template '{g}' not found")
+                sys.exit(f"generic index template '{gen_template}' not found")
 
-            t.update_name(args.object)
+            print(f"creating template {new_name} as a copy of {gen_template}")
+            t.update_name(new_name)
             ps = t.get_patterns()
             if ps[0] == "metrics-*-*":
                 new_pattern =  (f"metrics-*-{namespace}")
@@ -393,8 +515,7 @@ def main():
             t.update_prio(prio)
 
             res = api_request('POST',API_KEY,ELASTIC_HOST,SSL_VERIFY,f"_index_template/{t.name}",t.template)
-            print(json.dumps(res,indent=1))
-            t.print_details()
+            print(res)
         elif args.action == 'json':
             if args.object:
                 try:
@@ -441,6 +562,8 @@ def main():
                 changes += t.update_retention(args.retention_days)
             if args.prio:
                 changes += t.update_prio(args.prio)
+            if args.rollover_alias:
+                changes += t.update_ralias(args.rollover_alias)
             if args.pattern:
                 patterns = []
                 for p in args.pattern[0].split(","):
@@ -460,6 +583,44 @@ def main():
         sys.exit(1)
     print_warns(WARN)
 
+def task_watch(t,interval):
+    while True:
+        task = api_request('GET',API_KEY,ELASTIC_HOST,SSL_VERIFY,f"_tasks/{t}")
+        if task.get("completed", False):
+            print(f"Reindex task {t} completed")
+            break
+        else:
+            print_task(t,'compact',task)
+            sys.stdout.write("\033[F")
+            time.sleep(interval)
+
+def print_task(name,f,t):
+    try:
+        perc = round(t['task']['status']['created'] / t['task']['status']['total'] * 100,1)
+    except ZeroDivisionError:
+        perc = 0
+
+    if f == 'long':
+        if t['completed']: 
+            _status = "Complete!"
+        else:
+            _status = "Running..."
+        print(f"task: {name} - {_status}")
+        print(f"  - action: {t['task']['action']}")
+        print(f"  - description: {t['task']['description']}")
+        print(f"  - running_time: {t['task']['running_time']}")
+        print(f"    progress:")
+        print(f"      -  {t['task']['status']['created']}/{t['task']['status']['total']} {perc}%")
+    elif f == 'compact':
+        print(f"task: {name} - {perc}% complete")
+
+def name_exists(type,name):
+    if type == 'template':
+        if api_request_tf('GET',API_KEY,ELASTIC_HOST,SSL_VERIFY,f"_index_template/{name}"):
+            return True
+        else:
+            return False
+  
 def ilm_phase_show(P,PHASE):
     print(f"  - {P}:")
     print(f"    min_age: {PHASE['min_age']}")
@@ -474,9 +635,9 @@ def raise_warn(a,b,action,type):
                'P': "[!P] = unable to copy passwords, edit integration through the UI to re-add"
              }
 
-    if action == 'equals' and a == b:
+    if action == 'eq' and a == b:
         return ""
-    if action == 'notequals' and a != b:
+    if action == 'ne' and a != b:
         return ""
     elif action == 'search' and re.search(a, b):
         return ""
