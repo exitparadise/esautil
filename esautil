@@ -11,7 +11,7 @@ from esalib import *
 
 WARN={}
 SSL_VERIFY=True
-SPACES = ('ds_util_eks_enggds','ds_util_eks_dsprod','nifinonprod','ratl','natl','naus','atl','aus','dsdevqa','dsuat','dssbox','dsprod','prod','nonprod','research','default')
+SPACES = ('prod','dev','qa','default')
 API_KEY=os.getenv('ELASTIC_API_KEY')
 MANAGER="exitparadise"
 
