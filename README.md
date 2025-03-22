@@ -1,28 +1,33 @@
 # esautil
 
-Elastic Agent Control Utility
+Elastic Agent Management Utility
+ - Manage and configure datastreams
+ - Manage and copy agent policies
+ - Manage and copy/create index templates
 
-Manipulate Index Templates, Data Streams, Agent Policies & ILM Policies
-
+## install
+### python virtualenv
+```
+python -m venv ~/esautil 
+source ~/esautil/bin/activate
+pip -r requirements.txt
+```
 
 ### setenvs.sh
-script to set your secrets in env vars
+use this to set your API key as an environment variable. esautil will use this key to connect.
 
 ```
 tee setenvs.sh <<EOF
-export ELASTIC_API_KEY="<your elastic api key>"
+export ELASTIC_API_KEY="<your elastic apikey>"
 EOF
 
-. setenvs.sh
+. ./setenvs.sh
 ```
 
-### elastic api key permissions
-
-API Permissions for Elastic Agent/Fleet Managment
-
+## elastic API key privileges
 ```
 {
-  "fleet-mgmt-api": {
+  "esautil-api-privileges": {
     "cluster": [
       "manage_ilm",
       "write_fleet_secrets",
@@ -37,7 +42,10 @@ API Permissions for Elastic Agent/Fleet Managment
     "indices": [
       {
         "names": [
-          "*"
+          ".ds-*",
+          "logs*",
+          "metrics*",
+          "traces*"
         ],
         "privileges": [
           "manage",
@@ -46,13 +54,11 @@ API Permissions for Elastic Agent/Fleet Managment
         ],
         "field_security": {
           "grant": [
-            ".ds-*",
-            "logs*",
-            "metrics*",
-            "traces*"
+            "*"
           ],
           "except": [
-            ".ds-merged-*"
+            ".ds-merged-*",
+            "partial*"
           ]
         },
         "allow_restricted_indices": true
@@ -60,7 +66,7 @@ API Permissions for Elastic Agent/Fleet Managment
       {
         "names": [
           ".ds-merged-*",
-          "partial-*"
+          "partial*"
         ],
         "privileges": [
           "write",
@@ -97,5 +103,4 @@ API Permissions for Elastic Agent/Fleet Managment
     }
   }
 }
-
 ```

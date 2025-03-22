@@ -4,9 +4,56 @@
 # code@mailshaft.com
 # 
 
-import json, re
+import json, re, requests, sys
 from datetime import datetime
-from esafunc import api_request
+
+class elasticAPIclient:
+    def __init__(self,key,elastic_host,kibana_host,ssl_verify):
+        self.apiKey = key
+        self.elasticHost = elastic_host
+        self.kibanaHost = kibana_host
+        self.sslVerify = ssl_verify
+
+    def _request(self,type,method,url,payload=None):
+        _headers = {
+            'kbn-xsrf': 'reporting',
+            'Content-Type': 'application/json',
+            'Authorization': f'ApiKey {self.apiKey}',
+            'Elastic-Api-Version': '2023-10-31'
+        }
+        if method == 'GET':
+            response = requests.get(url, headers=_headers, verify=self.sslVerify)
+        elif method == 'POST':
+            response = requests.post(url, headers=_headers, json=payload, verify=self.sslVerify)
+        elif method == 'PUT':
+            response = requests.put(url, headers=_headers, json=payload, verify=self.sslVerify)
+        else:
+           sys.exit(f"method {method} not recognized")
+        if type == 'data': 
+            if response.status_code == 200:
+                content = response.json()
+                return content
+            else:
+                e = response.json()
+                sys.exit(f"ERROR: {e['error']['reason']}")
+        elif type == 'exists':
+            if response.status_code == 200:
+                return True
+            else:
+                return False
+    
+    def elasticRequest(self,method,loc,payload=None):
+        _url = f'https://{self.elasticHost}/{loc}'
+        return self._request('data',method,_url,payload)
+
+    def elasticExists(self,type,item):
+        if type == 'template':
+            _url = f'https://{self.elasticHost}/_index_template/{item}'
+            return self._request('exists','GET',_url)
+
+    def kibanaRequest(self,method,loc,payload=None):
+        _url = f'https://{self.kibanaHost}/{loc}'
+        return self._request('data',method,_url,payload)
 
 class ilmDetails:
     def __init__(self,data):
@@ -148,9 +195,9 @@ class agentPolicy():
 
             self.policy = data
 
-    def get(self,key,url,v):
-        pid = api_request('GET',key,url,v,f"api/fleet/agent_policies?kuery=ingest-agent-policies.name:{self.name}")
-        policy = api_request('GET',key,url,v,f"api/fleet/agent_policies/{pid['items'][0]['id']}")
+    def get(self,a):
+        pid = a.kibanaRequest('GET',f"api/fleet/agent_policies?kuery=ingest-agent-policies.name:{self.name}")
+        policy = a.kibanaRequest('GET',f"api/fleet/agent_policies/{pid['items'][0]['id']}")
         try:
             for p in policy['item']['package_policies']:
                 self.packages.append(p)
@@ -159,21 +206,21 @@ class agentPolicy():
             pass
         self.policy = policy['item']
 
-    def commit_policy(self,key,url,v):
-        resp = api_request('POST',key,url,v,f"api/fleet/agent_policies",self.policy)
+    def commit_policy(self,a):
+        resp = a.kibanaRequest('POST',f"api/fleet/agent_policies",self.policy)
         self.policy = resp['item']
     
     def delete_packages(self):
         self.packages = []
 
-    def add_package(self,key,url,v,package,num):
+    def add_package(self,a,package,num):
         package['policy_id'] = self.policy['id']
         if num > 1:
             package['name'] = self.policy['name'] + "-" + package['package']['name'] + str(num)
         else: 
             package['name'] = self.policy['name'] + "-" + package['package']['name']
 
-        p = api_request('POST',key,url,v,f"api/fleet/package_policies",package)
+        p = a.kibanaRequest('POST',f"api/fleet/package_policies",package)
         self.packages.append(p['item'])
         return (p['item'])
 
@@ -187,16 +234,17 @@ class agentPolicy():
 
     def print_json(self):
         print(self.name)
-        print("POLICY:")
+        print("policy:")
         print(json.dumps(self.policy,indent=1))
-        print("PACKAGES:")
+        print("integrations:")
         print(json.dumps(self.packages,indent=1))
 
-    def print_summary(self):
-        print(f"name: {self.policy['name']}")
-        print(f"namespace: {self.policy['namespace']}")
+    def print_details(self):
+        print(f"{self.policy['name']}:")
+        print(f"  - namespace: {self.policy['namespace']}")
+        print("  - integrations:")
         for pkg in self.packages:
-            print(f" - {pkg['name']}")
+            print(f"    - {pkg['name']}: {pkg['package']['name']}/{pkg['package']['title']}")
 
 class dict_append:
     def __init__(self, target):
