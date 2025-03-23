@@ -30,7 +30,7 @@ if you do not create a specific template, a generic system template with a wildc
 # some caveats for this cli utility
 ## index template names
 
-since namespaces play a significant part of elastic agent, the script assumes that your index template names include '-<namespace>' at the end of the name of the template. not following this convention will give unexpected results with some commands and is advised against.
+since namespaces play a significant part of elastic agent, the script assumes that your index template names include '-\<namespace\>' at the end of the name of the template. not following this convention will give unexpected results with some commands and is advised against.
 
 
 
