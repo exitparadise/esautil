@@ -11,28 +11,27 @@ Elastic Agent Management Utility
 elastic agent is elastic's replacement for metricbeat and filebeat. it can be installed standalone, or as a "fleet" member, and configured wholly through fleet managment in kibana. elastic agent policies are composed of "integrations", such as "zookeeper", "hadoop", "system", etc. and can include logs or metrics
 
 ### datastreams
-datastreams are elastic agent's method of storing information in elastic. a datastream is esentially an alias name for a group of indices. for the most part, you do not have control over the naming of the datastream and the indices that back it
+**datastreams** are elastic agent's method of storing information in elastic. a **datastream** is esentially an alias name for a group of indices. for the most part, you do not have control over the naming of the datastream and the indices that back it
 
-the format for a datastream name is: <type>-<dataset>-<namespace>
+the format for a datastream name is: **\<type\>-\<dataset\>-\<namespace\>**
 
-'type' is either "logs" or "metrics"
-'dataset' is the name of the data set that the integration sends to elastic servers for indexing. examples are 'zookeeper.server' or 'system.syslog'
-'namespace' is a user-configurable text string 
+**type** is either "logs" or "metrics"
+**dataset** is the name of the data set that the integration sends to elastic servers for indexing. examples are 'zookeeper.server' or 'system.syslog'
+**namespace** is a user-configurable text string 
 
 ### namespaces
-namespaces are configured in agent policies (and/or in integrations for that agent) this is a free-form text field that allows you to maintain any separation if you want, for example you could use a 'prod' and 'nonprod' namespace to keep your prod and nonprod data in separate indices. if you do not specify one, it will be 'default'
+**namespaces** are configured in **agent policies** (and/or in **integrations** for that agent) this is a free-form text field that allows you to maintain any separation if you want, for example you could use a * *prod* * and * *nonprod* * **namespace** to keep your prod and nonprod data in separate indices. if you do not specify one, it will be * *default* *
 
 ### index templates
-index templates control how the data for any given datastream (and its component indices) is treated, this includes lifecycle policies applied to indices, data mapping, aliases, etc. index templates have an index pattern that should match the name of the datastream(s) you want it to apply to. 
+**index templates** control how the data for any given **datastream* (and its component indices) is treated, this includes lifecycle policies applied to indices, data mapping, aliases, etc. 
+**index templates** have an index pattern that matches the name of the **datastream(s)** you want it to apply to. 
 
 if you do not create a specific template, a generic system template with a wildcard pattern will be used
 
 # some caveats for this cli utility
 ## index template names
 
-since namespaces play a significant part of elastic agent, the script assumes that your index template names include '-\<namespace\>' at the end of the name of the template. not following this convention will give unexpected results with some commands and is advised against.
-
-
+since **namespaces** play a significant part of elastic agent, the script assumes that your **index** template names include **'-\<namespace\>'** at the end of the name of the template. not following this convention will give unexpected results with some commands and is advised against.
 
 
 ## install
