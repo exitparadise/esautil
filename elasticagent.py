@@ -36,7 +36,12 @@ class apiClient:
                 return content
             else:
                 e = response.json()
-                sys.exit(f"ERROR: {e['error']['reason']}")
+                try:
+                    print(f"ERROR: {e['error']['reason']}")
+                except:
+                    print(f"ERROR: {e['message']}")
+                sys.exit()
+
         elif type == 'exists':
             if response.status_code == 200:
                 return True
@@ -198,7 +203,10 @@ class agentPolicy():
 
     def get(self,a):
         pid = a.kibanaRequest('GET',f"api/fleet/agent_policies?kuery=ingest-agent-policies.name:{self.name}")
-        policy = a.kibanaRequest('GET',f"api/fleet/agent_policies/{pid['items'][0]['id']}")
+        try:
+            policy = a.kibanaRequest('GET',f"api/fleet/agent_policies/{pid['items'][0]['id']}")
+        except:
+            sys.exit(f"no such policy {self.name}")
         try:
             for p in policy['item']['package_policies']:
                 self.packages.append(p)
@@ -207,8 +215,15 @@ class agentPolicy():
             pass
         self.policy = policy['item']
 
-    def commit_policy(self,a):
+    def commit_new_policy(self,a):
         resp = a.kibanaRequest('POST',f"api/fleet/agent_policies",self.policy)
+        self.policy = resp['item']
+
+    def commit_existing_policy(self,a):
+        for d in ('version','revision','updated_at','updated_by','agents','unprivileged_agents',
+                  'status','is_managed','is_protected','schema_version','inactivity_timeout'):
+            del self.policy[d]
+        resp = a.kibanaRequest('PUT',f"api/fleet/agent_policies/{self.policy['id']}",self.policy)
         self.policy = resp['item']
     
     def delete_packages(self):
@@ -232,6 +247,9 @@ class agentPolicy():
             del self.policy[d]
         self.policy['name'] = newname
         self.policy['namespace'] = newspace
+
+    def update(self,n,v):
+        self.policy[n] = v
 
     def print_json(self):
         print(self.name)

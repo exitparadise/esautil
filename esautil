@@ -46,10 +46,11 @@ parser_template.add_argument("-n", "--namespace", nargs=1, help="when action is 
 parser_template.add_argument("-r", "--rollover-alias", nargs=1, help="when actions is 'copy' or 'update', use this as rollover_index")
 
 parser_agent = subparsers.add_parser("agent", help="agent policy actions")
-parser_agent.add_argument("action", choices=["list","details","copy","json"])
+parser_agent.add_argument("action", choices=["list","details","update","copy","json"])
 parser_agent.add_argument("object", nargs="?", help="the namespace or agent policy")
 parser_agent.add_argument("dest", nargs="?", help="when action is 'copy', the new agent policy to copy to")
-parser_agent.add_argument("namespace", nargs="?", help="when action is 'copy', the namespace to set in new policy")
+parser_agent.add_argument("-n", "--namespace", help="when action is 'copy' or 'update', the namespace to set")
+parser_agent.add_argument("-m", "--name", help="when action is 'update', the name to set")
 parser_agent.add_argument("-f", "--full", action="store_true", help="when action is 'json', enable full output")
 
 parser_ds = subparsers.add_parser("ds", help="datastream actions")
@@ -243,7 +244,7 @@ def main():
                     for c in ilms[ilm]['in_use_by']['composable_templates']:
                         print(f"  - index_template: {c}")
     elif args.cmd == 'agent':
-        if args.action in ('list'):
+        if args.action == 'list':
             if args.object in SPACES:
                 pol = eapi.kibanaRequest('GET',f"api/fleet/agent_policies?kuery=ingest-agent-policies.namespace:{args.object}")
             else:
@@ -252,18 +253,34 @@ def main():
             for policy in pol['items']:
                 print(f"{policy['name']}:agents={policy['agents']}")
         elif args.action == 'details':
-            p = agentPolicy(args.object)
+            p = elasticagent.agentPolicy(args.object)
             p.get(eapi)
             p.print_details()
         elif args.action == 'json':
-            p = agentPolicy(args.object)
+            p = elasticagent.agentPolicy(args.object)
             p.get(eapi)
             p.print_json()
+        elif args.action == 'update':
+            p = elasticagent.agentPolicy(args.object)
+            p.get(eapi)
+            changes = 0
+            if args.namespace and p.policy['namespace'] != args.namespace: 
+                p.update('namespace',args.namespace)
+                changes += 1
+            if args.name and p.policy['name'] != args.name:
+                p.update('name',args.name)
+                changes += 1
+            if changes:
+                print(f"making {changes} changes to {args.object}")
+                p.commit_existing_policy(eapi)
+            else:
+                sys.exit("no changes made")
+            
         elif args.action == 'copy':
             if not args.object or not args.namespace or not args.dest:
                 sys.exit("copy action requires <object>, an agent policy to copy, <dest>, a name to copy to, and <namespace> the namespace to set in the new policy") 
             else:
-                p = agentPolicy(args.object)
+                p = elasticagent.agentPolicy(args.object)
                 p.get(eapi)
 
                 print(f"copy {p.policy['name']}/{p.policy['id']} to {args.dest}")
@@ -273,7 +290,7 @@ def main():
                 n.update_copy_policy(args.dest,args.namespace)
                 n.delete_packages()
 
-                n.commit_policy(eapi)
+                n.commit_new_policy(eapi)
                 print(f" - new policy ID: {n.policy['id']}")
                
                 already = {}
@@ -379,7 +396,7 @@ def main():
                        k.sort()
                        for id in k:
 
-                           a = ilmDetails(il['indices'][id])
+                           a = elasticagent.ilmDetails(il['indices'][id])
 
                            try:
                                W2 = raise_warn(ds['ilm_policy'],il['indices'][id]['policy'],'eq','M')
@@ -441,7 +458,7 @@ def main():
             template_recreate_from_ds(args.object)
         elif args.action == 'copy':
             try:
-                t = indexTemplate(eapi.elasticRequest('GET',f"_index_template/{args.object}"))
+                t = elasticagent.indexTemplate(eapi.elasticRequest('GET',f"_index_template/{args.object}"))
             except:
                 sys.exit(f"index template '{args.object}' not found")
 
@@ -483,7 +500,7 @@ def main():
                sys.exit(f"template: {new_name} already exists. choose a different name")
 
             try:
-                t = indexTemplate(eapi.elasticRequest('GET',f"_index_template/{gen_template}"))
+                t = elasticagent.indexTemplate(eapi.elasticRequest('GET',f"_index_template/{gen_template}"))
             except:
                 sys.exit(f"generic index template '{gen_template}' not found")
 
@@ -509,7 +526,7 @@ def main():
         elif args.action == 'json':
             if args.object:
                 try:
-                    t = indexTemplate(eapi.elasticRequest('GET',f"_index_template/{args.object}"))
+                    t = elasticagent.indexTemplate(eapi.elasticRequest('GET',f"_index_template/{args.object}"))
                     t.print_json()
                 except:
                     sys.exit(f"template not found: {args.object}")
@@ -526,14 +543,14 @@ def main():
             else:
                 sys.exit("template actions require <object>, a valid namespace or index template name")
 
-            for t in map(indexTemplate, resp['index_templates']):
+            for t in map(elasticagent.indexTemplate, resp['index_templates']):
                W = raise_warn(args.object, t.name, 'search', 'N')
                print(f"{t.name} {W}")
                if args.action == 'details':
                    t.print_details()
 
         elif args.action == 'update':
-            t = indexTemplate(eapi.elasticRequest('GET',f"_index_template/{args.object}"))
+            t = elasticagent.indexTemplate(eapi.elasticRequest('GET',f"_index_template/{args.object}"))
             changes = 0
             if args.component:
                 changes += t.update_component(args.component)
