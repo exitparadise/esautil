@@ -182,9 +182,12 @@ class indexTemplate():
         return 1
    
     def unmanage(self,m):
-        dict_append(self.template)['_meta']['managed_by'] = m
-        dict_append(self.template)['_meta']['managed'] = False
-        return 1
+        if m != "":
+            dict_append(self.template)['_meta']['managed_by'] = m
+            dict_append(self.template)['_meta']['managed'] = False
+            return 1
+        else:
+            return 0
 
 class agentPolicy():
     def __init__(self, name, data={}):

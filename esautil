@@ -8,14 +8,21 @@ import argparse, json, os, sys, re, copy, time
 from datetime import datetime
 import elasticagent
 
+# verify ssl connections. 
+#    set to 'false' if you are using self-signed certs on your elastic/kibana endpoints
 SSL_VERIFY=False
+
+# list of your namespaces
 SPACES = ('prod','dev','qa','default')
+
 API_KEY=os.getenv('ELASTIC_API_KEY')
-MANAGER="exitparadise"
+
+# stock templates are marked as fleet managed. set this to any text value
+#   if you want custom templates to be unmanaged.
+UNMANAGER="exitparadise"
 
 ELASTIC_HOST="elastic-api:9200"
 KIBANA_HOST="kibana-api:5601"
-
 
 parser = argparse.ArgumentParser(description="Elastic Agent Management Utility")
 subparsers = parser.add_subparsers(dest="cmd")
@@ -473,7 +480,7 @@ def main():
                 t.update_ralias(args.rollover_alias)
 
             t.update_name(args.dest)
-            t.unmanage(MANAGER)
+            t.unmanage(UNMANAGER)
             res = eapi.elasticRequest('POST',f"_index_template/{t.name}",t.template)
             print(res)
         elif args.action == 'createfromgeneric':
@@ -518,7 +525,7 @@ def main():
                 prio = 250
             ps[0] = new_pattern
             t.update_patterns(ps)
-            t.unmanage(MANAGER)
+            t.unmanage(UNMANAGER)
             t.update_prio(prio)
 
             res = eapi.elasticRequest('POST',f"_index_template/{t.name}",t.template)
