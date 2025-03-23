@@ -32,9 +32,16 @@ the datastream will have backing indices named: **.ds-\<datastream name\>-######
 if you do not create a specific template, a generic system template with a wildcard pattern will be used
 
 # some caveats for this cli utility
+## namespace list
+be sure to populate the SPACES variable at the top of the script with the full list of namespaces you are using.
+> [!IMPORTANT]
+> using the name of a namespace for any entity (index, datastream, template, etc) will cause confusion
+
 ## index template names
 
-since **namespaces** play a significant part of elastic agent, the script assumes that your **index** template names include **'-\<namespace\>'** at the end of the name of the template. not following this convention will give unexpected results with some commands and is advised against.
+since **namespaces** play a significant part of elastic agent, the script assumes that your **index** template names include **'-\<namespace\>'** at the end of the name of the template.
+> [!WARNING]
+> not following this convention may give false warnings and unexpected results
 
 
 ## install
