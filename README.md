@@ -60,7 +60,6 @@ EOF
 ```
 esautil task <list|details|cancel|watch> [task_id] [-w <seconds>]
 
-
 esautil index <details|create|rmalias|reindex|update> [index] 
         [-a <alias>] 
         [-l <lifecycle-policy>] 
@@ -75,7 +74,9 @@ esautil template <list|json|init|details|update|createfromgeneric|copy> <namespa
         [-n <namespace>]
         [-r <rollover-alias>]
 
-esautil agent <list|details|copy|json> <namespace|policy> [dest policy] [namespace]
+esautil agent <list|details|copy|json|update> <namespace|policy> [dest policy] [namespace]
+        [-n <namespace>]
+        [-a <name>]
 
 esautil ds <list|details|applyilm|rmindex|addindex> <namespace|datastream> [namespace|datastream] [index]
         [-l] (show lifecycle)
@@ -85,8 +86,6 @@ esautil ilm <list|details|json> [policy]
 esautil lc <details|move> [index] [phase]
 
 ```
-
-
 
 ## elastic API key privileges
 ```
