@@ -6,8 +6,9 @@
 
 import json, re, requests, sys
 from datetime import datetime
+requests.packages.urllib3.disable_warnings()
 
-class elasticAPIclient:
+class apiClient:
     def __init__(self,key,elastic_host,kibana_host,ssl_verify):
         self.apiKey = key
         self.elasticHost = elastic_host

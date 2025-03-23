@@ -4,13 +4,11 @@
 # code@mailshaft.com
 # 
 
-import argparse, json, requests, os, sys, re, copy, time
+import argparse, json, os, sys, re, copy, time
 from datetime import datetime
+import elasticagent
 
-from esalib import *
-
-WARN={}
-SSL_VERIFY=True
+SSL_VERIFY=False
 SPACES = ('prod','dev','qa','default')
 API_KEY=os.getenv('ELASTIC_API_KEY')
 MANAGER="exitparadise"
@@ -18,7 +16,6 @@ MANAGER="exitparadise"
 ELASTIC_HOST="elastic-api:9200"
 KIBANA_HOST="kibana-api:5601"
 
-requests.packages.urllib3.disable_warnings() 
 
 parser = argparse.ArgumentParser(description="Elastic Agent Management Utility")
 subparsers = parser.add_subparsers(dest="cmd")
@@ -56,7 +53,7 @@ parser_agent.add_argument("namespace", nargs="?", help="when action is 'copy', t
 parser_agent.add_argument("-f", "--full", action="store_true", help="when action is 'json', enable full output")
 
 parser_ds = subparsers.add_parser("ds", help="datastream actions")
-parser_ds.add_argument("action", choices=["list","details","applyilm","rmindex","addindex"])
+parser_ds.add_argument("action", choices=["list","details","json","applyilm","rmindex","addindex"])
 parser_ds.add_argument("object", nargs="?", help="the datastream or namespace we would like to target, used with 'list', 'details' and 'applyilm'")
 parser_ds.add_argument("target", nargs="?", help="when action is 'rmindex', the index to remove from datastream")
 parser_ds.add_argument("-l", "--show-lifecycle", action="store_true")
@@ -70,22 +67,24 @@ parser_lc.add_argument("action", choices=["details","move"])
 parser_lc.add_argument("object", help="the index/datastream")
 parser_lc.add_argument("target", nargs="?", help="when action is 'move', the phase we would like to move to")
 
+WARN={}
+
 try:
     args = parser.parse_args()
 except:
     parser.print_help()
     sys.exit(0)
 
-myapi = elasticAPIclient(API_KEY,ELASTIC_HOST,KIBANA_HOST,SSL_VERIFY)
+eapi = elasticagent.apiClient(API_KEY,ELASTIC_HOST,KIBANA_HOST,SSL_VERIFY)
 
 def main():
     if args.cmd == 'index':
         if args.action == 'reindex':
             if args.target:
                 payload = { "source": { "index": args.object }, "dest": { "index": args.target } }
-                resp = myapi.elasticRequest('POST',"_reindex?wait_for_completion=false",payload)
+                resp = eapi.elasticRequest('POST',"_reindex?wait_for_completion=false",payload)
                 try:
-                    task = myapi.elasticRequest('GET',f"_tasks/{resp['task']}?human")
+                    task = eapi.elasticRequest('GET',f"_tasks/{resp['task']}?human")
                 except requests.exceptions.HTTPError:
                     sys.exit(f"no task found with id: {resp['task']}, it must have completed already")
                 
@@ -115,7 +114,7 @@ def main():
                     alias = args.alias
 
                 payload = { "aliases": { f"{alias}": { "is_write_index": True } }, "settings": { "lifecycle": { "rollover_alias": alias } } }
-                resp = myapi.elasticRequest('PUT',args.object,payload)
+                resp = eapi.elasticRequest('PUT',args.object,payload)
                 print(resp)
         elif args.action == 'update':
             if args.lifecycle_policy:
@@ -125,23 +124,23 @@ def main():
                     pol = args.lifecycle_policy
 
                 payload = { "index.lifecycle.name": pol, "index.lifecycle.prefer_ilm": True }
-                resp = myapi.elasticRequest('PUT',f"{args.object}/_settings",payload)
+                resp = eapi.elasticRequest('PUT',f"{args.object}/_settings",payload)
                 print(resp)
             else:
                 sys.exit("index update needs -a <lifecycle policy>")
         elif args.action == 'rmalias':
             if args.target: 
                 payload = { "actions": [ { "remove": { "index": args.object, "alias": args.target } } ] }
-                resp = myapi.elasticRequest('POST',"_aliases",payload)
+                resp = eapi.elasticRequest('POST',"_aliases",payload)
                 print(resp)
         elif args.action == 'details':
-            resp = myapi.elasticRequest('GET',args.object)
+            resp = eapi.elasticRequest('GET',args.object)
             try:
                 resp[args.object]
             except:
                 sys.exit(f"{args.object} is not an index")
 
-            stat = myapi.elasticRequest('GET',f"/{args.object}/_stats?human")
+            stat = eapi.elasticRequest('GET',f"/{args.object}/_stats?human")
 
             print(f"{args.object}:")
             print(f"  - size: {stat['_all']['primaries']['store']['size']}")
@@ -155,7 +154,7 @@ def main():
                 print(f"  - ilm: None")
     elif args.cmd == 'task':
         if args.action == 'list':
-            tasks = myapi.elasticRequest('GET',f"_tasks?actions=indices:*/reindex&human")
+            tasks = eapi.elasticRequest('GET',f"_tasks?actions=indices:*/reindex&human")
             if tasks['nodes']:
                 print("tasks:")
                 for node in tasks['nodes']:
@@ -168,7 +167,7 @@ def main():
         elif args.action == 'details':
             if args.object:
                 try:
-                    task = myapi.elasticRequest('GET',f"_tasks/{args.object}?human")
+                    task = eapi.elasticRequest('GET',f"_tasks/{args.object}?human")
                 except requests.exceptions.HTTPError:
                     sys.exit(f"no task found with id: {args.object}")
                 
@@ -190,14 +189,14 @@ def main():
 
         elif args.action == 'cancel':
             if args.object:
-                resp = myapi.elasticRequest('POST',f"_tasks/{args.object}/_cancel")
+                resp = eapi.elasticRequest('POST',f"_tasks/{args.object}/_cancel")
                 print(resp) 
             else:
                 sys.exit(f"{args.action} needs an <object>, a task id")
 
     elif args.cmd == 'lc':
         if args.action == 'details':
-            il = myapi.elasticRequest('GET',f"{args.object}/_ilm/explain")
+            il = eapi.elasticRequest('GET',f"{args.object}/_ilm/explain")
             print(f"{il['indices'][args.object]['index']}:")
             print(f"  - ilm: {il['indices'][args.object]['policy']}")
             print(f"    phase: {il['indices'][args.object]['phase']}")
@@ -206,24 +205,24 @@ def main():
             if il['indices'][args.object]['step'] == 'ERROR':
                 print(f"      ERROR: {il['indices'][args.object]['step_info']['reason']}")
         elif args.action == 'move':
-            il = myapi.elasticRequest('GET',f"{args.object}/_ilm/explain")
+            il = eapi.elasticRequest('GET',f"{args.object}/_ilm/explain")
             phase = il['indices'][args.object]['phase']
             action = il['indices'][args.object]['action']
             name = il['indices'][args.object]['step']
 
             payload = { "current_step": { "phase": phase, "action": action, "name": name }, "next_step": { "phase": args.target } }
-            resp = myapi.elasticRequest('POST',f"_ilm/move/{args.object}",payload)
+            resp = eapi.elasticRequest('POST',f"_ilm/move/{args.object}",payload)
             print(resp)
         else:
             sys.exit(f"unrecognized lifecycle action: {args.action}")
     elif args.cmd == 'ilm':
         if args.action == 'list':
-            ilms = myapi.elasticRequest('GET',f"_ilm/policy")
+            ilms = eapi.elasticRequest('GET',f"_ilm/policy")
             for ilm in ilms:
                 print(ilm)
         elif args.action in ('details', 'json'):
             try:
-                ilms = myapi.elasticRequest('GET',f"_ilm/policy/{args.object}")
+                ilms = eapi.elasticRequest('GET',f"_ilm/policy/{args.object}")
             except:
                 sys.exit(f"could not find ilm policy: {args.object}")
 
@@ -246,7 +245,7 @@ def main():
     elif args.cmd == 'agent':
         if args.action in ('list'):
             if args.object in SPACES:
-                pol = myapi.kibanaRequest('GET',f"api/fleet/agent_policies?kuery=ingest-agent-policies.namespace:{args.object}")
+                pol = eapi.kibanaRequest('GET',f"api/fleet/agent_policies?kuery=ingest-agent-policies.namespace:{args.object}")
             else:
                 sys.exit("agent list requires <object>, a valid namespace name")
            
@@ -254,18 +253,18 @@ def main():
                 print(f"{policy['name']}:agents={policy['agents']}")
         elif args.action == 'details':
             p = agentPolicy(args.object)
-            p.get(myapi)
+            p.get(eapi)
             p.print_details()
         elif args.action == 'json':
             p = agentPolicy(args.object)
-            p.get(myapi)
+            p.get(eapi)
             p.print_json()
         elif args.action == 'copy':
             if not args.object or not args.namespace or not args.dest:
                 sys.exit("copy action requires <object>, an agent policy to copy, <dest>, a name to copy to, and <namespace> the namespace to set in the new policy") 
             else:
                 p = agentPolicy(args.object)
-                p.get(myapi)
+                p.get(eapi)
 
                 print(f"copy {p.policy['name']}/{p.policy['id']} to {args.dest}")
 
@@ -274,7 +273,7 @@ def main():
                 n.update_copy_policy(args.dest,args.namespace)
                 n.delete_packages()
 
-                n.commit_policy(myapi)
+                n.commit_policy(eapi)
                 print(f" - new policy ID: {n.policy['id']}")
                
                 already = {}
@@ -311,7 +310,7 @@ def main():
                                   except:
                                       pass
 
-                    res = n.add_package(myapi,pkg,already[pkg['package']['name']])
+                    res = n.add_package(eapi,pkg,already[pkg['package']['name']])
                     print(f" - add integration: {res['name']}/{res['id']} {W}")
                 print("Done!")
 
@@ -319,12 +318,12 @@ def main():
             if not args.object:
                 sys.exit("json action requires <object>, an agent policy name") 
             else:
-                p = myapi.kibanaRequest('GET',f"api/fleet/agent_policies?kuery=ingest-agent-policies.name:{args.object}")
+                p = eapi.kibanaRequest('GET',f"api/fleet/agent_policies?kuery=ingest-agent-policies.name:{args.object}")
                 if args.full:
-                    policy = myapi.kibanaRequest('GET',f"api/fleet/agent_policies/{p['items'][0]['id']}/full")
+                    policy = eapi.kibanaRequest('GET',f"api/fleet/agent_policies/{p['items'][0]['id']}/full")
                 else:
                     try:
-                        policy = myapi.kibanaRequest('GET',f"api/fleet/agent_policies/{p['items'][0]['id']}")
+                        policy = eapi.kibanaRequest('GET',f"api/fleet/agent_policies/{p['items'][0]['id']}")
                     except IndexError:
                         sys.exit(f"agent policy: {args.object} does not exist")
                 print(json.dumps(policy,indent=1))
@@ -332,15 +331,15 @@ def main():
     elif args.cmd == 'ds':
         if args.action in ('list', 'details'):
             if args.object in SPACES:
-                resp = myapi.elasticRequest('GET',f"_data_stream/*-{args.object}?expand_wildcards=all")
+                resp = eapi.elasticRequest('GET',f"_data_stream/*-{args.object}?expand_wildcards=all")
             elif args.object and args.object != 'all':
                 try:
-                    resp = myapi.elasticRequest('GET',f"_data_stream/{args.object}")
-                    stat = myapi.elasticRequest('GET',f"/{args.object}/_stats?human")
+                    resp = eapi.elasticRequest('GET',f"_data_stream/{args.object}")
+                    stat = eapi.elasticRequest('GET',f"/{args.object}/_stats?human")
                 except:
                     sys.exit(f"could not find datastream: {args.object}")
             elif args.object == 'all':
-                resp=myapi.elasticRequest('GET',f"_data_stream?expand_wildcards=all")
+                resp = eapi.elasticRequest('GET',f"_data_stream?expand_wildcards=all")
             else:
                 sys.exit("datastream actions require <object>, a valid namespace or a datastream name")
 
@@ -357,6 +356,15 @@ def main():
                        print(f"  - ilm_policy: {ds['ilm_policy']}")
                    except KeyError: 
                        pass
+
+                   try:
+                       ds['lifecycle']['enabled']
+                       print(f"  - lifecycle:")
+                       for i in ('data_retention','effective_retention','retention_determined_by'):
+                           print(f"      {i}: {ds['lifecycle'][i]}")
+                   except:
+                       pass
+
                    try:
                        print(f"  - size: {stat['_all']['primaries']['store']['size']}")
                        print(f"  - docs: {stat['_all']['primaries']['docs']['count']}")
@@ -365,7 +373,7 @@ def main():
                    print("  - indices:")
 
                    if args.show_lifecycle:
-                       il = myapi.elasticRequest('GET',f"{ds['name']}/_ilm/explain")
+                       il = eapi.elasticRequest('GET',f"{ds['name']}/_ilm/explain")
 
                        k = list(il['indices'].keys())
                        k.sort()
@@ -393,6 +401,11 @@ def main():
 
                else:
                    print(f"{ds['name']} template:{ds['template']} {W}")
+        elif args.action == 'json':
+            resp = eapi.elasticRequest('GET',f"_data_stream/{args.object}")
+            stat = eapi.elasticRequest('GET',f"/{args.object}/_stats?human")
+            print(json.dumps(resp,indent=1))
+            print(json.dumps(stat,indent=1))
         elif args.action in ('addindex', 'rmindex'):
             if args.target:
                 if args.action == 'addindex':
@@ -402,13 +415,13 @@ def main():
                 else: 
                     sys.exit()
 
-                resp = myapi.elasticRequest('POST',f"_data_stream/_modify",payload)
+                resp = eapi.elasticRequest('POST',f"_data_stream/_modify",payload)
                 print(resp)
             else:
                 sys.exit("{args.action} requires <target>, an index to add/remove as backing of the named datastream")
         elif args.action == 'applyilm':
             if args.object:
-                resp = myapi.elasticRequest('GET',f"_data_stream/{args.object}")
+                resp = eapi.elasticRequest('GET',f"_data_stream/{args.object}")
             else:
                 sys.exit("applyilm action requires <object>, a datastream name")
 
@@ -420,7 +433,7 @@ def main():
                    else:
                        print(f"update {index['index_name']} from {index['ilm_policy']} to {ds['ilm_policy']}")
                        payload = { "index.lifecycle.name": ds['ilm_policy'], "index.lifecycle.prefer_ilm": True }
-                       resp = myapi.elasticRequest('PUT',f"{index['index_name']}/_settings",payload)
+                       resp = eapi.elasticRequest('PUT',f"{index['index_name']}/_settings",payload)
                        print(resp)
           
     elif args.cmd == 'template':
@@ -428,11 +441,11 @@ def main():
             template_recreate_from_ds(args.object)
         elif args.action == 'copy':
             try:
-                t = indexTemplate(myapi.elasticRequest('GET',f"_index_template/{args.object}"))
+                t = indexTemplate(eapi.elasticRequest('GET',f"_index_template/{args.object}"))
             except:
                 sys.exit(f"index template '{args.object}' not found")
 
-            if myapi.elasticExists('template',args.dest):
+            if eapi.elasticExists('template',args.dest):
                sys.exit(f"template: {args.dest} already exists. choose a different name")
 
             if args.pattern:
@@ -444,7 +457,7 @@ def main():
 
             t.update_name(args.dest)
             t.unmanage(MANAGER)
-            res = myapi.elasticRequest('POST',f"_index_template/{t.name}",t.template)
+            res = eapi.elasticRequest('POST',f"_index_template/{t.name}",t.template)
             print(res)
         elif args.action == 'createfromgeneric':
             if not args.object:
@@ -466,11 +479,11 @@ def main():
                 namespace = n[0]
 
             new_name = re.sub("\@template","",args.object)
-            if myapi.elasticExists('template',new_name):
+            if eapi.elasticExists('template',new_name):
                sys.exit(f"template: {new_name} already exists. choose a different name")
 
             try:
-                t = indexTemplate(myapi.elasticRequest('GET',f"_index_template/{gen_template}"))
+                t = indexTemplate(eapi.elasticRequest('GET',f"_index_template/{gen_template}"))
             except:
                 sys.exit(f"generic index template '{gen_template}' not found")
 
@@ -491,12 +504,12 @@ def main():
             t.unmanage(MANAGER)
             t.update_prio(prio)
 
-            res = myapi.elasticRequest('POST',f"_index_template/{t.name}",t.template)
+            res = eapi.elasticRequest('POST',f"_index_template/{t.name}",t.template)
             print(res)
         elif args.action == 'json':
             if args.object:
                 try:
-                    t = indexTemplate(myapi.elasticRequest('GET',f"_index_template/{args.object}"))
+                    t = indexTemplate(eapi.elasticRequest('GET',f"_index_template/{args.object}"))
                     t.print_json()
                 except:
                     sys.exit(f"template not found: {args.object}")
@@ -504,10 +517,10 @@ def main():
                 sys.exit(f"json action requires <object>, an index template name")
         elif args.action in ('list', 'details'):
             if args.object in SPACES:
-                resp = myapi.elasticRequest('GET',f"_index_template/*-{args.object}")
+                resp = eapi.elasticRequest('GET',f"_index_template/*-{args.object}")
             elif args.action == 'details' and args.object:
                 try:
-                    resp=myapi.elasticRequest('GET',f"_index_template/{args.object}")
+                    resp=eapi.elasticRequest('GET',f"_index_template/{args.object}")
                 except:
                     sys.exit("template actions require <object>, a valid namespace or index template name")
             else:
@@ -520,7 +533,7 @@ def main():
                    t.print_details()
 
         elif args.action == 'update':
-            t = indexTemplate(myapi.elasticRequest('GET',f"_index_template/{args.object}"))
+            t = indexTemplate(eapi.elasticRequest('GET',f"_index_template/{args.object}"))
             changes = 0
             if args.component:
                 changes += t.update_component(args.component)
@@ -549,7 +562,7 @@ def main():
                 changes += t.update_patterns(patterns)
 
             if changes:
-                res = myapi.elasticRequest('POST',f"_index_template/{args.object}",t.template)
+                res = eapi.elasticRequest('POST',f"_index_template/{args.object}",t.template)
                 print(f"updating template {t.name} with {changes} changes")
                 print(json.dumps(res,indent=1))
             else:
@@ -562,7 +575,7 @@ def main():
 
 def task_watch(t,interval):
     while True:
-        task = myapi.elasticRequest('GET',f"_tasks/{t}")
+        task = eapi.elasticRequest('GET',f"_tasks/{t}")
         if task.get("completed", False):
             print(f"Reindex task {t} completed")
             break
@@ -623,13 +636,13 @@ def template_recreate_from_ds(NAMESPACE):
     # get list of all data streams in namespace, and the current templates
     # then create new templates specific for that namespace
     action=(f"_data_stream/*-{NAMESPACE}")
-    dstreams = myapi.elasticRequest('GET',action)
+    dstreams = eapi.elasticRequest('GET',action)
     for ds in dstreams['data_streams']:
         if "-"+NAMESPACE in ds['template']:
             print(f"Namespaced template {ds['template']} already exists...")
             continue
 
-        resp = myapi.elasticRequest('GET',f"_index_template/{ds['template']}")
+        resp = eapi.elasticRequest('GET',f"_index_template/{ds['template']}")
 
         template = resp['index_templates'][0]['index_template']
         template_name = resp['index_templates'][0]['name']
@@ -672,7 +685,7 @@ def template_recreate_from_ds(NAMESPACE):
         template['priority'] = new_prio
         template['_meta']['managed_by'] = MANAGER
         template['_meta']['managed'] = False
-        resp = myapi.elasticRequest('PUT',f"_index_template/{new_name}",template)
+        resp = eapi.elasticRequest('PUT',f"_index_template/{new_name}",template)
         print(resp)
 
 if __name__ == '__main__':
