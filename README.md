@@ -14,6 +14,7 @@ elastic agent is elastic's replacement for metricbeat and filebeat. it can be in
 **datastreams** are elastic agent's method of storing information in elastic. a **datastream** is esentially an alias name for a group of indices. for the most part, you do not have control over the naming of the datastream and the indices that back it
 
 the format for a datastream name is: **\<type\>-\<dataset\>-\<namespace\>**
+the datastream will have backing indices named: **.ds-<datastream name>-######**
 
 + **type** is either "logs" or "metrics"
 + **dataset** is the name of the data set that the integration sends to elastic servers for indexing. examples are 'zookeeper.server' or 'system.syslog'
