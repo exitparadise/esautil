@@ -56,6 +56,9 @@ class apiClient:
         if type == 'template':
             _url = f'https://{self.elasticHost}/_index_template/{item}'
             return self._request('exists','GET',_url)
+        elif type == 'component':
+            _url = f'https://{self.elasticHost}/_component_template/{item}'
+            return self._request('exists','GET',_url)
 
     def kibanaRequest(self,method,loc,payload=None):
         _url = f'https://{self.kibanaHost}/{loc}'
@@ -103,7 +106,7 @@ class indexTemplate():
        try:
          print(f"  - lifecycle_data_retention: {self.template['template']['lifecycle']['data_retention']}")
        except KeyError:
-         print(f"  - lifecycle data retention: None")
+         print(f"  - lifecycle_data_retention: None")
 
        print("  - patterns:")
        for pat in self.template['index_patterns']:
@@ -148,14 +151,17 @@ class indexTemplate():
             count += 1
         return count
   
-    def update_component(self,c):
+    def update_component(self,a,c):
         count = 0
         if c[0] in ('a','add'):
             if c[1] in self.template['composed_of']:
                 print(f"component template: {c[1]} is already in index template: {self.name}")
             else: 
-                self.template['composed_of'].append(c[1])
-                count += 1
+                if a.elasticExists('component',c[1]):
+                    self.template['composed_of'].append(c[1])
+                    count += 1
+                else:
+                    sys.exit(f"component: {c[1]} does not exist")
         elif c[0] in ('r','rm','remove'):
             if c[1] in self.template['composed_of']:
                 self.template['composed_of'].remove(c[1])

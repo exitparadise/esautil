@@ -13,7 +13,7 @@ import elasticagent
 SSL_VERIFY=False
 
 # list of your namespaces
-SPACES = ('prod','dev','qa','default')
+SPACES = ('default','prod','dev')
 
 API_KEY=os.getenv('ELASTIC_API_KEY')
 
@@ -353,78 +353,78 @@ def main():
                 print(json.dumps(policy,indent=1))
 
     elif args.cmd == 'ds':
-        if args.action in ('list', 'details'):
+        if args.action == 'list':
             if args.object in SPACES:
                 resp = eapi.elasticRequest('GET',f"_data_stream/*-{args.object}?expand_wildcards=all")
-            elif args.object and args.object != 'all':
-                try:
-                    resp = eapi.elasticRequest('GET',f"_data_stream/{args.object}")
-                    stat = eapi.elasticRequest('GET',f"/{args.object}/_stats?human")
-                except:
-                    sys.exit(f"could not find datastream: {args.object}")
             elif args.object == 'all':
                 resp = eapi.elasticRequest('GET',f"_data_stream?expand_wildcards=all")
             else:
-                sys.exit("datastream actions require <object>, a valid namespace or a datastream name")
+                sys.exit("datastream list requires <object>, a valid namespace or 'all'")
 
             if len(resp['data_streams']) < 1:
                 sys.exit(f"{args.object} is not a datastream or doesn't exist")
             for ds in resp['data_streams']:
-               
                W = raise_warn(args.object,ds['template'],'search','N')
+               print(f"{ds['name']} template:{ds['template']} {W}")
 
-               if args.action == 'details':
-                   print(f"{ds['name']}:")
-                   print(f"  - index_template: {ds['template']} {W}")
-                   try:
-                       print(f"  - ilm_policy: {ds['ilm_policy']}")
-                   except KeyError: 
-                       pass
+        elif args.action == 'details':
+            try:
+                resp = eapi.elasticRequest('GET',f"_data_stream/{args.object}")
+                stat = eapi.elasticRequest('GET',f"/{args.object}/_stats?human")
+            except:
+                sys.exit(f"could not find datastream: {args.object}")
 
-                   try:
-                       ds['lifecycle']['enabled']
-                       print(f"  - lifecycle:")
-                       for i in ('data_retention','effective_retention','retention_determined_by'):
-                           print(f"      {i}: {ds['lifecycle'][i]}")
-                   except:
-                       pass
+            for ds in resp['data_streams']:
+                W = raise_warn(args.object,ds['template'],'search','N')
+                print(f"{ds['name']}:")
+                print(f"  - index_template: {ds['template']} {W}")
+                try:
+                    print(f"  - ilm_policy: {ds['ilm_policy']}")
+                except KeyError: 
+                    pass
+               
+                search = { "query": { "match_all": {} }, "size": 1, "sort": [{"@timestamp": {"order": "desc"}}]}
+                try:
+                    sres = eapi.elasticRequest('POST',f"{ds['name']}/_search",search)
+                    print(f"  - last_updated: {sres['hits']['hits'][0]['_source']['event']['ingested']}")
+                except: 
+                    print(f"  - last_updated: Never")
+                try:
+                    ds['lifecycle']['enabled']
+                    print(f"  - lifecycle:")
+                    for i in ('data_retention','effective_retention','retention_determined_by'):
+                        print(f"      {i}: {ds['lifecycle'][i]}")
+                except:
+                    pass
+                try:
+                    print(f"  - size: {stat['_all']['primaries']['store']['size']}")
+                    print(f"  - docs: {stat['_all']['primaries']['docs']['count']}")
+                except:
+                    pass
+                print("  - indices:")
+                if args.show_lifecycle:
+                    il = eapi.elasticRequest('GET',f"{ds['name']}/_ilm/explain")
 
-                   try:
-                       print(f"  - size: {stat['_all']['primaries']['store']['size']}")
-                       print(f"  - docs: {stat['_all']['primaries']['docs']['count']}")
-                   except:
-                       pass
-                   print("  - indices:")
+                    k = list(il['indices'].keys())
+                    k.sort()
+                    for id in k:
+                        a = elasticagent.ilmDetails(il['indices'][id])
+                        try:
+                            W2 = raise_warn(ds['ilm_policy'],il['indices'][id]['policy'],'eq','M')
+                        except KeyError:
+                            try:
+                                W2 = raise_warn(ds['ilm_policy'],'None','eq','M')
+                            except: 
+                                W2 = ''
+                        a.print_details(W2)
+                else:
+                    for index in ds['indices']:
+                        try:
+                            W2 = raise_warn(ds['ilm_policy'],index['ilm_policy'],'eq','M')
+                            print(f"    {index['index_name']} ilm:{index['ilm_policy']} {W2}")
+                        except KeyError:
+                            print(f"    {index['index_name']}")
 
-                   if args.show_lifecycle:
-                       il = eapi.elasticRequest('GET',f"{ds['name']}/_ilm/explain")
-
-                       k = list(il['indices'].keys())
-                       k.sort()
-                       for id in k:
-
-                           a = elasticagent.ilmDetails(il['indices'][id])
-
-                           try:
-                               W2 = raise_warn(ds['ilm_policy'],il['indices'][id]['policy'],'eq','M')
-                           except KeyError:
-                               try:
-                                   W2 = raise_warn(ds['ilm_policy'],'None','eq','M')
-                               except: 
-                                   W2 = ''
-
-                           a.print_details(W2)
-
-                   else:
-                       for index in ds['indices']:
-                           try:
-                               W2 = raise_warn(ds['ilm_policy'],index['ilm_policy'],'eq','M')
-                               print(f"    {index['index_name']} ilm:{index['ilm_policy']} {W2}")
-                           except KeyError:
-                               print(f"    {index['index_name']}")
-
-               else:
-                   print(f"{ds['name']} template:{ds['template']} {W}")
         elif args.action == 'json':
             resp = eapi.elasticRequest('GET',f"_data_stream/{args.object}")
             stat = eapi.elasticRequest('GET',f"/{args.object}/_stats?human")
@@ -560,7 +560,7 @@ def main():
             t = elasticagent.indexTemplate(eapi.elasticRequest('GET',f"_index_template/{args.object}"))
             changes = 0
             if args.component:
-                changes += t.update_component(args.component)
+                changes += t.update_component(eapi,args.component)
             if args.lifecycle_policy:
                 if type(args.lifecycle_policy) is list:
                     if args.lifecycle_policy[0] in ('none','None',0):
